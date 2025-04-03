@@ -1,0 +1,11 @@
+torch>=2.1.0
+transformers
+diffusers==0.31.0
+sentencepiece
+accelerate
+opencv-python
+peft
+wandb
+jupyter
+patch_conv
+prodigyopt

@@ -1,0 +1,10 @@
+export NUM_WORKERS=1
+export DATA_DIR="path/to/data"
+export MODEL_NAME="black-forest-labs/FLUX.1-dev"
+torchrun --nproc_per_node=$NUM_WORKERS cache_latent_codes.py \
+    --data_root=$DATA_DIR \
+    --num_worker=$NUM_WORKERS \
+    --pretrained_model_name_or_path=$MODEL_NAME \
+    --mixed_precision='bf16' \
+    --output_dir=$DATA_DIR \
+    --resolution=4096
