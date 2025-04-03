@@ -1,9 +1,9 @@
 export MODEL_NAME="black-forest-labs/FLUX.1-dev"
-export DATA_DIR="/path/to/data"
-export OUTPUT_DIR="/path/to/ckpt"
+export DATA_DIR="/mnt/share/datasets/img_align_celeba"
+export OUTPUT_DIR="/mnt/share/Luigi/Documents/URAE/src/ckpt"
 export PRECISION="bf16"
-
-accelerate launch --num_processes 8 --multi_gpu --mixed_precision $PRECISION train_2k.py \
+export CUDA_VISIBLE_DEVICES=0,1
+accelerate launch --num_processes 2 --multi_gpu --mixed_precision $PRECISION src/train_2k.py \
   --pretrained_model_name_or_path=$MODEL_NAME  \
   --dataset_root=$DATA_DIR \
   --output_dir=$OUTPUT_DIR \
