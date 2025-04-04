@@ -1,9 +1,10 @@
-export NUM_WORKERS=1
-export DATA_DIR="/path/to/data"
+export NUM_WORKERS=2
+export DATA_DIR="/mnt/share/Luigi/Documents/URAE/dataset/laion_high_resolution_images"
 export MODEL_NAME="black-forest-labs/FLUX.1-dev"
-torchrun --nproc_per_node=$NUM_WORKERS cache_prompt_embeds.py \
+export CUDA_VISIBLE_DEVICES=0,1
+torchrun --nproc_per_node=$NUM_WORKERS src/cache_prompt_embeds.py \
     --data_root=$DATA_DIR \
-    --batch_size=256 \
+    --batch_size=128 \
     --num_worker=$NUM_WORKERS \
     --pretrained_model_name_or_path=$MODEL_NAME \
     --mixed_precision='bf16' \

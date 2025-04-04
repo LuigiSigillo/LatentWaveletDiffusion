@@ -1,5 +1,5 @@
 export MODEL_NAME="black-forest-labs/FLUX.1-dev"
-export DATA_DIR="/mnt/share/datasets/img_align_celeba"
+export DATA_DIR="/mnt/share/Luigi/Documents/URAE/dataset/laion_high_resolution_images"
 export OUTPUT_DIR="/mnt/share/Luigi/Documents/URAE/src/ckpt"
 export PRECISION="bf16"
 export CUDA_VISIBLE_DEVICES=0,1

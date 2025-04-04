@@ -8,6 +8,7 @@ src/vae_SE_finetuning/results
 src/vae_SE_finetuning/vae-finetuned
 src/vae_SE_finetuning/wandb
 .vscode/
+dataset/
 # C extensions
 *.so
 

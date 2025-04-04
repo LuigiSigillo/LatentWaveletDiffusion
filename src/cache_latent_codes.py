@@ -149,7 +149,14 @@ def main(args):
     work_load = math.ceil(len(all_info) / args.num_workers)
     for idx in tqdm.tqdm(range(work_load * args.local_rank, min(work_load * (args.local_rank + 1), len(all_info)))):
         output_path = os.path.join(args.output_dir, f"{all_info[idx][:all_info[idx].rfind('.')]}_latent_code.safetensors")
-        img = cv2.cvtColor(cv2.imread(os.path.join(args.data_root, all_info[idx])), cv2.COLOR_BGR2RGB)
+        if os.path.exists(output_path):
+            # print(f"File {output_path} already exists. Skipping...")
+            continue
+        try:
+            img = cv2.cvtColor(cv2.imread(os.path.join(args.data_root, all_info[idx])), cv2.COLOR_BGR2RGB)
+        except Exception as e:
+            print(f"Error reading image {all_info[idx]}: {e}")
+            continue
         img = Image.fromarray(img)
         if args.resolution is not None:
             img = resize(img, args.resolution)
