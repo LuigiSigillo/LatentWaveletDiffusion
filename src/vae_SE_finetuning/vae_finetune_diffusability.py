@@ -51,9 +51,36 @@ class ImageDataset(Dataset):
     
     def __getitem__(self, idx):
         image_path = self.image_paths[idx]
-        image = Image.open(image_path).convert("RGB")
-        image = self.transform(image)
-        return {"pixel_values": image}
+        try:
+            # Try to open the image - first attempt
+            with open(image_path, 'rb') as f:
+                image = Image.open(f)
+                # The load() call below will catch truncated files
+                image.load()
+                image = image.convert("RGB")
+                image = self.transform(image)
+                return {"pixel_values": image}
+        except (IOError, PIL.UnidentifiedImageError, OSError) as e:
+            # Check specifically for truncated file error
+            if "truncated" in str(e).lower():
+                logger.warning(f"Skipping truncated image {image_path}: {str(e)}")
+            else:
+                logger.warning(f"Error loading image {image_path}: {str(e)}")
+            
+            # Try the next image instead
+            next_idx = (idx + 1) % len(self)
+            logger.info(f"Trying next image at index {next_idx}")
+            return self.__getitem__(next_idx)
+        except Exception as e:
+            # Catch any other unexpected errors
+            logger.error(f"Unexpected error loading image {image_path}: {str(e)}")
+            
+            # Create a blank/noise image as fallback
+            image_size = self.transform.transforms[0].size
+            dummy_image = torch.randn(3, image_size, image_size)
+            dummy_image = torch.clamp(dummy_image, -1, 1)  # Ensure in [-1, 1] range like normalized images
+            logger.info(f"Returning random noise image for {image_path}")
+            return {"pixel_values": dummy_image}
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Fine-tune a pretrained VAE using AutoencoderKL")
@@ -742,5 +769,3 @@ def set_seed(seed):
 
 if __name__ == "__main__":
     main()
-
-

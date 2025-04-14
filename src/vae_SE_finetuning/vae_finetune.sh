@@ -1,8 +1,8 @@
-CUDA_VISIBILE_DEVICES=1 python vae_finetune_diffusability.py \
+CUDA_VISIBILE_DEVICES=2 python vae_finetune_diffusability.py \
   --pretrained_model_name_or_path "black-forest-labs/FLUX.1-dev" \
   --subfolder "vae" \
-  --data_dir /mnt/share/datasets/img_align_celeba \
-  --output_dir ./vae-finetuned \
+  --data_dir /mnt/share/Luigi/Documents/URAE/dataset/laion_high_resolution_images \
+  --output_dir ./vae_finetuned_LAION \
   --image_size 256 \
   --batch_size 16 \
   --num_train_epochs 2 \

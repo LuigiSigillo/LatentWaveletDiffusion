@@ -59,6 +59,13 @@ def parse_args(input_args=None):
         help="Path to pretrained model or model identifier from huggingface.co/models.",
     )
     parser.add_argument(
+        "--pretrained_vae_path",
+        type=str,
+        default=None,
+        required=False,
+        help="Path to pretrained model for vae.",
+    )
+    parser.add_argument(
         "--revision",
         type=str,
         default=None,
@@ -419,11 +426,20 @@ def main(args):
     )
     noise_scheduler_copy = copy.deepcopy(noise_scheduler)
     vae = AutoencoderKL.from_pretrained(
-        args.pretrained_model_name_or_path,
-        subfolder="vae",
-        revision=args.revision,
-        variant=args.variant,
-    )
+            args.pretrained_vae_path,
+            subfolder="vae",
+            revision=args.revision,
+            variant=args.variant,
+        ) if args.pretrained_vae_path is not None else \
+        AutoencoderKL.from_pretrained(
+            args.pretrained_model_name_or_path,
+            subfolder="vae",
+            revision=args.revision,
+            variant=args.variant,
+        )
+    
+
+
     transformer = FluxTransformer2DModel.from_pretrained(
         args.pretrained_model_name_or_path, subfolder="transformer", revision=args.revision, variant=args.variant
     )
