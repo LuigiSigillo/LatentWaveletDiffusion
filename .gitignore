@@ -5,8 +5,8 @@ __pycache__/
 wandb/
 src/vae_SE_finetuning/__pycache__
 src/vae_SE_finetuning/results
-src/vae_SE_finetuning/vae-finetuned
 src/vae_SE_finetuning/wandb
+src/vae_SE_finetuning/ckpt
 src/ckpt
 src/output
 .vscode/

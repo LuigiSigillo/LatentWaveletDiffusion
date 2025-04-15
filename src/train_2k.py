@@ -88,7 +88,13 @@ def parse_args(input_args=None):
             " or to a folder containing files that 🤗 Datasets can understand."
         ),
     )
-    
+    parser.add_argument(
+        "--latent_code_dir",
+        type=str,
+        default=None,
+        help="The directory where the latent are stored",
+    )
+
     parser.add_argument(
         "--cache_dir",
         type=str,
@@ -345,9 +351,10 @@ def parse_args(input_args=None):
 
 
 class CustomImageDataset(Dataset):
-    def __init__(self, img_dir, real_prompt_ratio=0.5):
+    def __init__(self, img_dir, real_prompt_ratio=0.5, latent_codes_dir=None):
         self.images = [os.path.join(img_dir, i) for i in os.listdir(img_dir) if '.jpg' in i or '.png' in i]
         self.real_prompt_ratio = real_prompt_ratio
+        self.latent_codes_dir = latent_codes_dir
 
     def __len__(self):
         return len(self.images)
@@ -355,20 +362,34 @@ class CustomImageDataset(Dataset):
     def __getitem__(self, idx):
         try:
             batch = {}
-            f = load_file(self.images[idx][:self.images[idx].rfind('.')] + '_latent_code.safetensors')
+            image_path = self.images[idx]
+            image_filename = os.path.basename(image_path)
+            base_filename = image_filename[:image_filename.rfind('.')]
+            
+            # Load latent codes from the specified directory if provided
+            if self.latent_codes_dir:
+                latent_code_path = os.path.join(self.latent_codes_dir, f"{base_filename}_latent_code.safetensors")
+                f = load_file(latent_code_path)
+            else:
+                # Fallback to original behavior
+                f = load_file(image_path[:image_path.rfind('.')] + '_latent_code.safetensors')
+                
             batch['latent_codes_mean'] = f['mean']
             batch['latent_codes_std'] = f['std']
-            prompt_embeds_path = self.images[idx][:self.images[idx].rfind('.')] + '_prompt_embed.safetensors'
-            generated_prompt_embeds_path = self.images[idx][:self.images[idx].rfind('.')] + '_generated_prompt_embed.safetensors'
+            
+            prompt_embeds_path = image_path[:image_path.rfind('.')] + '_prompt_embed.safetensors'
+            generated_prompt_embeds_path = image_path[:image_path.rfind('.')] + '_generated_prompt_embed.safetensors'
+            
             if (not os.path.exists(generated_prompt_embeds_path) or random.random() < self.real_prompt_ratio) and os.path.exists(prompt_embeds_path):
                 f = load_file(prompt_embeds_path)
             else:
                 f = load_file(generated_prompt_embeds_path)
+                
             batch['prompt_embeds_t5'] = f['caption_feature_t5']
             batch['prompt_embeds_clip'] = f['caption_feature_clip']
             return batch
         except Exception as e:
-            print(e)
+            print(f"Error loading data for {self.images[idx]}: {e}")
             return self.__getitem__(random.randint(0, len(self.images) - 1))
 
 
@@ -631,7 +652,8 @@ def main(args):
     train_dataloader = torch.utils.data.DataLoader(
         CustomImageDataset(
             args.dataset_root,
-            real_prompt_ratio=args.real_prompt_ratio
+            real_prompt_ratio=args.real_prompt_ratio,
+            latent_codes_dir=args.latent_code_dir
         ), 
         batch_size=args.train_batch_size, num_workers=args.dataloader_num_workers, shuffle=True
     )

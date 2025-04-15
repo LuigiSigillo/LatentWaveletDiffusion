@@ -103,7 +103,7 @@ def parse_args():
     parser.add_argument("--mixed_precision", type=str, default="bf16", choices=["no", "fp16", "bf16"], help="Mixed precision training")
     parser.add_argument("--use_8bit_adam", action="store_true", help="Use 8-bit Adam")
     parser.add_argument("--allow_tf32", action="store_true", help="Allow TF32 precision on Ampere GPUs")
-    parser.add_argument("--seed", type=int, default=None, help="Random seed")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--checkpointing_steps", type=int, default=2000, help="Save checkpoint every X steps")
     parser.add_argument("--resume_from_checkpoint", type=str, default=None, help="Resume from checkpoint")
     parser.add_argument("--with_tracking", action="store_true", help="Enable experiment tracking with WandB")
@@ -752,8 +752,8 @@ class SpectralAnalyzer:
         plt.tight_layout()
         
         # Create directory if it doesn't exist
-        os.makedirs("/mnt/share/Luigi/Documents/URAE/wavelet_viz", exist_ok=True)
-        plt.savefig(os.path.join("/mnt/share/Luigi/Documents/URAE/wavelet_viz", f"wavelet_visualization_step_{step}.png"))
+        os.makedirs("results/wavelet_viz", exist_ok=True)
+        plt.savefig(os.path.join("results/wavelet_viz", f"wavelet_visualization_step_{step}.png"))
         plt.close(fig)
         
         return fig
