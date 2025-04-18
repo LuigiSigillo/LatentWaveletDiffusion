@@ -20,10 +20,11 @@ import wandb
 from PIL import Image
 import PIL
 import bitsandbytes as bnb
-# Add to existing imports
 import torch_dct as tdct  # pip install torch-dct
 from pytorch_wavelets import DWTForward  # pip install pytorch_wavelets
-import matplotlib.pyplot as plt
+import einops
+import lpips  # Add LPIPS import - pip install lpips
+
 # Setup logging
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(name)s - %(message)s", datefmt="%m/%d/%Y %H:%M:%S", level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -117,6 +118,7 @@ def parse_args():
     parser.add_argument("--validation_prompts", type=str, nargs="+", default=None, help="Validation prompts")
     parser.add_argument("--validation_steps", type=int, default=500)
     parser.add_argument("--regularization_alpha", type=float, default=0.25, help="Weight for regularization loss")
+    parser.add_argument("--lpips_weight", type=float, default=0.5, help="Weight for LPIPS perceptual loss")
     parser.add_argument("--latent_channels", type=int, default=16, help="Number of latent channels")
     parser.add_argument("--ema_decay", type=float, default=0.9998, help="EMA decay rate (half-life of 5000 steps)")
     return parser.parse_args()
@@ -203,6 +205,12 @@ def main():
         shuffle=True, 
         num_workers=4
     )
+    
+    # Initialize LPIPS VGG model for perceptual loss
+    lpips_model = lpips.LPIPS(net='vgg').to(accelerator.device)
+    # Freeze LPIPS model parameters
+    for param in lpips_model.parameters():
+        param.requires_grad = False
     
     # Count trainable parameters
     trainable_params = sum(p.numel() for p in vae.parameters() if p.requires_grad)
@@ -333,7 +341,6 @@ def main():
     
     # Function to evaluate and generate samples
     def evaluate_and_sample(step, fixed_visualization_batch=None):
-
         if not accelerator.is_main_process:
             return
 
@@ -359,14 +366,26 @@ def main():
 
             # Calculate losses for fixed batch
             fixed_rec_loss = F.mse_loss(fixed_reconstructed, fixed_eval_images).item()
+            # Calculate LPIPS loss for fixed batch
+            fixed_reconstr_0_1 = (fixed_reconstructed + 1) / 2
+            fixed_eval_images_0_1 = (fixed_eval_images + 1) / 2
+            fixed_lpips_loss = lpips_model(fixed_reconstr_0_1, fixed_eval_images_0_1).mean().item()
+            
             fixed_kl_loss = vae.encode(fixed_eval_images).latent_dist.kl().mean().item()
-            downscale_factor = random.choice([0.5, 0.25])  # 2x or 4x downsampling
-            x_down = F.interpolate(fixed_eval_images, scale_factor=downscale_factor, mode='bilinear', align_corners=False)
-            x_recon_down = F.interpolate(fixed_decoded, scale_factor=downscale_factor, mode='bilinear', align_corners=False)
-            fixed_scale_loss = F.mse_loss(x_recon_down, x_down, reduction='sum').item()
-
+            #downscale_factor = random.choice([0.5, 0.25])  # 2x or 4x downsampling
+            #x_down = F.interpolate(fixed_eval_images, scale_factor=downscale_factor, mode='bilinear', align_corners=False)
+            #x_recon_down = F.interpolate(fixed_decoded, scale_factor=downscale_factor, mode='bilinear', align_corners=False)
+            # fixed_scale_loss = F.mse_loss(x_recon_down, x_down, reduction='sum').item()
+            # New code using einops (consistent with training):
+            scale_factor = float(1 / random.choice([0.5, 0.25]))  # Convert 0.5/0.25 to 2/4
+            interp_kwargs = dict(pattern='b c (h sh) (w sw) -> b c h w', reduction='mean', 
+                                sh=int(scale_factor), sw=int(scale_factor))
+                                
+            x_down = einops.reduce(fixed_eval_images, **interp_kwargs)
+            x_recon_down = einops.reduce(fixed_decoded, **interp_kwargs)
+            fixed_scale_loss = F.mse_loss(x_recon_down, x_down, reduction='mean').item()
             # Total loss for fixed batch
-            fixed_loss = fixed_rec_loss + args.kl_weight * fixed_kl_loss + args.regularization_alpha * fixed_scale_loss
+            fixed_loss = fixed_rec_loss + args.kl_weight * fixed_kl_loss + args.regularization_alpha * fixed_scale_loss + args.lpips_weight * fixed_lpips_loss
 
             # Log metrics and images for the fixed batch
             if args.with_tracking:
@@ -374,17 +393,10 @@ def main():
                     "validation_fixed/reconstruction_loss": fixed_rec_loss,
                     "validation_fixed/kl_loss": fixed_kl_loss,
                     "validation_fixed/scale_loss": fixed_scale_loss,
+                    "validation_fixed/lpips_loss": fixed_lpips_loss,
                     "validation_fixed/loss": fixed_loss,
-                    "validation_fixed/downscale_factor": downscale_factor,
-                    "validation_fixed/samples": wandb.Image(
-                        torch.cat([
-                            (fixed_eval_images + 1) / 2, 
-                            (fixed_reconstructed + 1) / 2, 
-                            (fixed_ema_reconstructed + 1) / 2, 
-                            (fixed_decoded + 1) / 2
-                        ]),
-                        caption="Top: Original, Second: Direct Recon, Third: EMA Recon, Bottom: Encode-Decode"
-                    ),
+                    "validation_fixed/downscale_factor": 1/scale_factor if args.regularization_alpha > 0 else 0,
+                    # Add other logs here
                 }, step=step, commit=False)
 
             # Generate reconstructions with main model for dynamic batch
@@ -395,13 +407,20 @@ def main():
 
             # Calculate losses for dynamic batch
             dynamic_rec_loss = F.mse_loss(dynamic_reconstructed, dynamic_eval_images).item()
+            # Calculate LPIPS loss for dynamic batch
+            dynamic_reconstr_0_1 = (dynamic_reconstructed + 1) / 2
+            dynamic_eval_images_0_1 = (dynamic_eval_images + 1) / 2
+            dynamic_lpips_loss = lpips_model(dynamic_reconstr_0_1, dynamic_eval_images_0_1).mean().item()
+            
             dynamic_kl_loss = vae.encode(dynamic_eval_images).latent_dist.kl().mean().item()
-            x_down_dynamic = F.interpolate(dynamic_eval_images, scale_factor=downscale_factor, mode='bilinear', align_corners=False)
-            x_recon_down_dynamic = F.interpolate(dynamic_decoded, scale_factor=downscale_factor, mode='bilinear', align_corners=False)
-            dynamic_scale_loss = F.mse_loss(x_recon_down_dynamic, x_down_dynamic, reduction='sum').item()
-
+            #x_down_dynamic = F.interpolate(dynamic_eval_images, scale_factor=downscale_factor, mode='bilinear', align_corners=False)
+            #x_recon_down_dynamic = F.interpolate(dynamic_decoded, scale_factor=downscale_factor, mode='bilinear', align_corners=False)
+            #dynamic_scale_loss = F.mse_loss(x_recon_down_dynamic, x_down_dynamic, reduction='sum').item()
+            x_down_dynamic = einops.reduce(dynamic_eval_images, **interp_kwargs)
+            x_recon_down_dynamic = einops.reduce(dynamic_decoded, **interp_kwargs)
+            dynamic_scale_loss = F.mse_loss(x_recon_down_dynamic, x_down_dynamic, reduction='mean').item()
             # Total loss for dynamic batch
-            dynamic_loss = dynamic_rec_loss + args.kl_weight * dynamic_kl_loss + args.regularization_alpha * dynamic_scale_loss
+            dynamic_loss = dynamic_rec_loss + args.kl_weight * dynamic_kl_loss + args.regularization_alpha * dynamic_scale_loss + args.lpips_weight * dynamic_lpips_loss
 
             # Log metrics and images for the dynamic batch
             if args.with_tracking:
@@ -409,19 +428,11 @@ def main():
                     "validation_dynamic/reconstruction_loss": dynamic_rec_loss,
                     "validation_dynamic/kl_loss": dynamic_kl_loss,
                     "validation_dynamic/scale_loss": dynamic_scale_loss,
+                    "validation_dynamic/lpips_loss": dynamic_lpips_loss,
                     "validation_dynamic/loss": dynamic_loss,
-                    "validation_dynamic/downscale_factor": downscale_factor,
-                    "validation_dynamic/samples": wandb.Image(
-                        torch.cat([
-                            (dynamic_eval_images + 1) / 2, 
-                            (dynamic_reconstructed + 1) / 2, 
-                            (dynamic_ema_reconstructed + 1) / 2, 
-                            (dynamic_decoded + 1) / 2
-                        ]),
-                        caption="Top: Original, Second: Direct Recon, Third: EMA Recon, Bottom: Encode-Decode"
-                    ),
+                    # Add other logs here
                 }, step=step, commit=False)
-
+            
             # Add spectral analysis for fixed batch
             spectral_metrics_fixed = spectral_analyzer.analyze(
                 fixed_eval_images, 
@@ -453,7 +464,7 @@ def main():
     fixed_visualization_batch = None
     # Initialize spectral analyzer
     spectral_analyzer = SpectralAnalyzer(accelerator.device)
-    # Initialize spectral monitor
+    
     for epoch in range(args.num_train_epochs):
         for step, batch in enumerate(dataloader):
             with accelerator.accumulate(vae):
@@ -470,19 +481,43 @@ def main():
                 reconstr_image = decoded.sample
                 reconstruction_loss = F.mse_loss(reconstr_image, pixel_values, reduction="mean")
                 
+                # LPIPS perceptual loss
+                # Scale images from [-1, 1] to [0, 1] for LPIPS
+                reconstr_image_0_1 = (reconstr_image + 1) / 2
+                pixel_values_0_1 = (pixel_values + 1) / 2
+                lpips_loss = lpips_model(reconstr_image_0_1, pixel_values_0_1).mean()
+                
                 # KL divergence loss (disabled for SE-regularized models as per paper)
                 kl_loss = encoded.latent_dist.kl().mean() if args.kl_weight > 0 else torch.tensor(0.0).to(accelerator.device)
                 
-                # Randomly choose downsampling ratio (2x or 4x) for regularization loss
-                downscale_factor = random.choice([0.5, 0.25])  # 2x or 4x downsampling
-                
-                # Downsample original and reconstructed images with the randomly chosen factor
-                x_down = F.interpolate(pixel_values, scale_factor=downscale_factor, mode='bilinear', align_corners=False)
-                x_recon_down = F.interpolate(reconstr_image, scale_factor=downscale_factor, mode='bilinear', align_corners=False)
-                scale_loss = F.mse_loss(x_recon_down, x_down, reduction='sum')
-
+                # Apply downsampling regularization similar to the video model but for images
+                if args.regularization_alpha > 0:
+                    # Randomly choose scale factor from [2, 4] (inverse of [0.5, 0.25])
+                    scale_factor = float(1 / random.choice([0.5, 0.25]))
+                    
+                    # Downsample both original images and latents
+                    interp_kwargs = dict(pattern='b c (h sh) (w sw) -> b c h w', reduction='mean', 
+                                        sh=int(scale_factor), sw=int(scale_factor))
+                    
+                    # Downsample original images and latent representations
+                    pixels_down = einops.reduce(pixel_values, **interp_kwargs)
+                    
+                    # For latents, we need to handle the different structure
+                    # Get the current shape of latents
+                    # b, c, h, w = latents.shape
+                    latents_down = einops.reduce(latents, **interp_kwargs)
+                    
+                    # Generate new predictions from downsampled latents
+                    decoded_down = vae.decode(latents_down)
+                    reconstr_down = decoded_down.sample
+                    
+                    # Compute loss between the new predictions and downsampled originals
+                    scale_loss = F.mse_loss(reconstr_down, pixels_down, reduction='mean')
+                else:
+                    scale_loss = torch.tensor(0.0).to(accelerator.device)
+                    
                 # Total loss with regularization parameters
-                loss = reconstruction_loss + args.kl_weight * kl_loss + args.regularization_alpha * scale_loss
+                loss = reconstruction_loss + args.kl_weight * kl_loss + args.regularization_alpha * scale_loss + args.lpips_weight * lpips_loss
 
                 # Log metrics
                 if args.with_tracking and accelerator.is_main_process:
@@ -490,8 +525,9 @@ def main():
                         "train/reconstruction_loss": reconstruction_loss.detach().item(),
                         "train/kl_loss": kl_loss.detach().item(),
                         "train/scale_loss": scale_loss.detach().item(),
+                        "train/lpips_loss": lpips_loss.detach().item(),  # Log LPIPS loss
                         "train/loss": loss.detach().item(),
-                        "train/downscale_factor": downscale_factor,
+                        "train/downscale_factor": 1/scale_factor if args.regularization_alpha > 0 else 0,
                     }, step=global_step)
                   
                 # Backward pass
@@ -515,6 +551,7 @@ def main():
                         "reconstruction_loss": reconstruction_loss.detach().item(),
                         "kl_loss": kl_loss.detach().item(),
                         "scale_loss": scale_loss.detach().item(),
+                        "lpips_loss": lpips_loss.detach().item(),  # Add LPIPS to logs
                         "lr": lr_scheduler.get_last_lr()[0],
                         "step": global_step,
                         "epoch": epoch,
@@ -533,7 +570,29 @@ def main():
                 if global_step % args.checkpointing_steps == 0:
                     if accelerator.is_main_process:
                         save_path = os.path.join(args.output_dir, f"checkpoint-{global_step}")
+                        os.makedirs(save_path, exist_ok=True)
+                        
+                        # Save accelerator state
                         accelerator.save_state(save_path)
+                        
+                        # Unwrap model for proper saving
+                        unwrapped_vae = accelerator.unwrap_model(vae)
+                        
+                        # Save model with proper naming convention (config.json and diffusion_pytorch_model.safetensors)
+                        unwrapped_vae.save_pretrained(
+                            save_path,
+                            safe_serialization=True,  # Use safetensors format
+                        )
+                        
+                        # Also save EMA model
+                        ema_save_path = os.path.join(save_path, "ema")
+                        os.makedirs(ema_save_path, exist_ok=True)
+                        ema_vae.save_pretrained(
+                            ema_save_path,
+                            safe_serialization=True,  # Use safetensors format
+                        )
+                        
+                        logger.info(f"Saved checkpoint at step {global_step} to {save_path}")
                 
             # Break if max steps reached
             if global_step >= args.max_train_steps:

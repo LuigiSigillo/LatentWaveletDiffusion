@@ -435,6 +435,7 @@ def main(args):
     # If passed along, set the training seed now.
     if args.seed is not None:
         set_seed(args.seed)
+        print(f"Set seed to {args.seed}")
 
     # Handle the repository creation
     if accelerator.is_main_process:
@@ -458,18 +459,18 @@ def main(args):
             revision=args.revision,
             variant=args.variant,
         )
-    
+    print(f"VAE loaded from {args.pretrained_vae_path if args.pretrained_vae_path is not None else args.pretrained_model_name_or_path}")	
 
 
     transformer = FluxTransformer2DModel.from_pretrained(
         args.pretrained_model_name_or_path, subfolder="transformer", revision=args.revision, variant=args.variant
     )
-
+    print(f"Transformer loaded from {args.pretrained_model_name_or_path}")
     attn_processors = {}
     for k in transformer.attn_processors.keys():
         attn_processors[k] = FluxAttnProcessor2_0()
     transformer.set_attn_processor(attn_processors)
-    
+    print(f"Attn processors set")
     # We only train the additional adapter LoRA layers
     transformer.requires_grad_(False)
     vae.requires_grad_(False)
@@ -649,6 +650,7 @@ def main(args):
         )
 
     # Dataset and DataLoaders creation:
+    print(f"Loading dataset from {args.dataset_root}")
     train_dataloader = torch.utils.data.DataLoader(
         CustomImageDataset(
             args.dataset_root,
@@ -657,7 +659,7 @@ def main(args):
         ), 
         batch_size=args.train_batch_size, num_workers=args.dataloader_num_workers, shuffle=True
     )
-    
+    print(f"Dataset loaded from {args.dataset_root} with {len(train_dataloader.dataset)} images, latent codes from {args.latent_code_dir}")
     vae_config_shift_factor = vae.config.shift_factor
     vae_config_scaling_factor = vae.config.scaling_factor
     vae_config_block_out_channels = vae.config.block_out_channels
