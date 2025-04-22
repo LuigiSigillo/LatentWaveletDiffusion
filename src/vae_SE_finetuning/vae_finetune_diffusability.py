@@ -110,15 +110,15 @@ def parse_args():
     parser.add_argument("--with_tracking", action="store_true", help="Enable experiment tracking with WandB")
     parser.add_argument("--report_to", type=str, default="wandb", help="Tracking system to use")
     parser.add_argument("--tracker_project_name", type=str, default="vae-finetuning", help="WandB project name")
-    parser.add_argument("--kl_weight", type=float, default=0.0, help="Weight for KL divergence loss (disabled for SE-regularized models)")
+    parser.add_argument("--kl_weight", type=float, default=0, help="Weight for KL divergence loss (disabled for SE-regularized models)")
     parser.add_argument("--freeze_encoder", action="store_true", help="Freeze encoder parameters")
     parser.add_argument("--freeze_decoder", action="store_true", help="Freeze decoder parameters")
     parser.add_argument("--revision", type=str, default=None, help="Revision of pretrained model identifier")
     parser.add_argument("--subfolder", type=str, default=None, help="Subfolder of the pretrained model if part of a larger model")
     parser.add_argument("--validation_prompts", type=str, nargs="+", default=None, help="Validation prompts")
     parser.add_argument("--validation_steps", type=int, default=500)
-    parser.add_argument("--regularization_alpha", type=float, default=0.25, help="Weight for regularization loss")
-    parser.add_argument("--lpips_weight", type=float, default=0.5, help="Weight for LPIPS perceptual loss")
+    parser.add_argument("--regularization_alpha", type=float, default=0.1, help="Weight for regularization loss")
+    parser.add_argument("--lpips_weight", type=float, default=0.05, help="Weight for LPIPS perceptual loss")
     parser.add_argument("--latent_channels", type=int, default=16, help="Number of latent channels")
     parser.add_argument("--ema_decay", type=float, default=0.9998, help="EMA decay rate (half-life of 5000 steps)")
     return parser.parse_args()
@@ -360,7 +360,8 @@ def main():
 
             # Generate reconstructions with main model for fixed batch
             fixed_reconstructed = vae(fixed_eval_images).sample
-            fixed_latents = vae.encode(fixed_eval_images).latent_dist.sample()
+            # Option 2: Using mean - deterministic encoding
+            fixed_latents = vae.encode(fixed_eval_images).latent_dist.mean
             fixed_decoded = vae.decode(fixed_latents).sample
             fixed_ema_reconstructed = ema_vae(fixed_eval_images).sample
 
@@ -472,7 +473,9 @@ def main():
                 
                 # Encode the input images to get the latent distribution
                 encoded = vae.encode(pixel_values)
-                latents = encoded.latent_dist.sample()  # Sample from the latent distribution
+                
+                # Option 1: Sample from distribution (or use mean if desired)
+                latents = encoded.latent_dist.mean
                 
                 # Decode the latents to reconstruct the images
                 decoded = vae.decode(latents)
@@ -481,11 +484,15 @@ def main():
                 reconstr_image = decoded.sample
                 reconstruction_loss = F.mse_loss(reconstr_image, pixel_values, reduction="mean")
                 
+
                 # LPIPS perceptual loss
-                # Scale images from [-1, 1] to [0, 1] for LPIPS
-                reconstr_image_0_1 = (reconstr_image + 1) / 2
-                pixel_values_0_1 = (pixel_values + 1) / 2
-                lpips_loss = lpips_model(reconstr_image_0_1, pixel_values_0_1).mean()
+                if args.lpips_weight > 0:
+                    # Scale images from [-1, 1] to [0, 1] for LPIPS
+                    reconstr_image_0_1 = (reconstr_image + 1) / 2
+                    pixel_values_0_1 = (pixel_values + 1) / 2
+                    lpips_loss = lpips_model(reconstr_image_0_1, pixel_values_0_1).mean()
+                else:
+                    lpips_loss = torch.tensor(0.0).to(accelerator.device)
                 
                 # KL divergence loss (disabled for SE-regularized models as per paper)
                 kl_loss = encoded.latent_dist.kl().mean() if args.kl_weight > 0 else torch.tensor(0.0).to(accelerator.device)
@@ -503,8 +510,6 @@ def main():
                     pixels_down = einops.reduce(pixel_values, **interp_kwargs)
                     
                     # For latents, we need to handle the different structure
-                    # Get the current shape of latents
-                    # b, c, h, w = latents.shape
                     latents_down = einops.reduce(latents, **interp_kwargs)
                     
                     # Generate new predictions from downsampled latents
@@ -540,7 +545,6 @@ def main():
             if accelerator.sync_gradients:
                 # Update EMA model
                 update_ema_model(global_step)
-                
                 progress_bar.update(1)
                 global_step += 1
                 
@@ -558,7 +562,6 @@ def main():
                         "images_seen": global_step * args.batch_size * accelerator.num_processes,
                     }
                     progress_bar.set_postfix(**logs)
-                    
                     if args.with_tracking:
                         accelerator.log(logs, step=global_step)
                 
@@ -571,10 +574,8 @@ def main():
                     if accelerator.is_main_process:
                         save_path = os.path.join(args.output_dir, f"checkpoint-{global_step}")
                         os.makedirs(save_path, exist_ok=True)
-                        
                         # Save accelerator state
                         accelerator.save_state(save_path)
-                        
                         # Unwrap model for proper saving
                         unwrapped_vae = accelerator.unwrap_model(vae)
                         
@@ -593,7 +594,7 @@ def main():
                         )
                         
                         logger.info(f"Saved checkpoint at step {global_step} to {save_path}")
-                
+            
             # Break if max steps reached
             if global_step >= args.max_train_steps:
                 break
@@ -611,35 +612,30 @@ def main():
         # Save both the regular model and EMA model
         vae.save_pretrained(args.output_dir)
         ema_vae.save_pretrained(os.path.join(args.output_dir, "ema"))
-        
         # Generate final samples
         evaluate_and_sample(global_step, fixed_visualization_batch)
         
         logger.info(f"Training completed after {global_step} steps. Total images seen: {global_step * args.batch_size * accelerator.num_processes}")
-    
     accelerator.end_training()
 
 class SpectralAnalyzer:
     """Monitors spectral properties of images during VAE training."""
-    
     def __init__(self, device, n_bands=3):
         self.device = device
         self.n_bands = n_bands
         
         # Initialize wavelet transform
         self.dwt = DWTForward(J=1, mode='zero', wave='haar').to(device)
-        
+    
     def compute_dct(self, images):
         """Compute DCT coefficients for batch of images."""
         # Move to CPU for DCT if using scipy
         batch_size, channels, height, width = images.shape
         dct_coeffs = torch.zeros_like(images)
-        
         for c in range(channels):
             # Using torch-dct which supports GPU computation
             dct_coeffs[:, c] = tdct.dct_2d(images[:, c])
-            
-        return dct_coeffs
+        return dct_coeffs        
     
     def compute_wavelets(self, images):
         """Compute wavelet decomposition of images."""
@@ -649,7 +645,6 @@ class SpectralAnalyzer:
     def frequency_bands_analysis(self, dct_coeffs):
         """Analyze energy in different frequency bands (low, mid, high)."""
         batch_size, channels, height, width = dct_coeffs.shape
-        
         # Create frequency band masks
         low_idx = int(height * 0.25)  # Low freq: 0-25%
         mid_idx = int(height * 0.75)  # Mid freq: 25-75%
@@ -657,22 +652,18 @@ class SpectralAnalyzer:
         # Calculate energy (squared magnitude) of coefficients
         energy = dct_coeffs.pow(2)
         total_energy = energy.sum(dim=[1, 2, 3]).mean().item()
-        
         # Low frequency energy (top-left corner of DCT)
         low_energy = energy[:, :, :low_idx, :low_idx].sum(dim=[1, 2, 3]).mean().item()
-        
         # Mid frequency energy
         mid_mask = torch.ones((height, width), device=self.device)
         mid_mask[:low_idx, :low_idx] = 0
         mid_mask[mid_idx:, mid_idx:] = 0
         mid_energy = (energy * mid_mask.view(1, 1, height, width)).sum(dim=[1, 2, 3]).mean().item()
-        
         # High frequency energy
         high_mask = torch.zeros((height, width), device=self.device)
         high_mask[mid_idx:, :] = 1
         high_mask[:, mid_idx:] = 1
         high_energy = (energy * high_mask.view(1, 1, height, width)).sum(dim=[1, 2, 3]).mean().item()
-        
         return {
             "total_energy": total_energy,
             "low_freq_energy": low_energy,
@@ -689,19 +680,15 @@ class SpectralAnalyzer:
         orig_dct = self.compute_dct(originals)
         recon_dct = self.compute_dct(reconstructions)
         diff_dct = self.compute_dct(originals - reconstructions)
-        
         # Get wavelet coefficients
         orig_wav_ll, orig_wav_bands = self.compute_wavelets(originals)
         recon_wav_ll, recon_wav_bands = self.compute_wavelets(reconstructions)
-        
         # Analyze frequency bands
         orig_metrics = self.frequency_bands_analysis(orig_dct)
         recon_metrics = self.frequency_bands_analysis(recon_dct)
-        
         # Calculate high frequency suppression ratio
         high_freq_suppression = 1.0 - (recon_metrics["high_freq_ratio"] / orig_metrics["high_freq_ratio"]) \
             if orig_metrics["high_freq_ratio"] > 0 else 0.0
-            
         metrics = {
             "high_freq_suppression": high_freq_suppression,
             "orig_high_freq_ratio": orig_metrics["high_freq_ratio"],
@@ -724,7 +711,6 @@ class SpectralAnalyzer:
             orig_dct_viz = prepare_dct_viz(orig_dct)
             recon_dct_viz = prepare_dct_viz(recon_dct)
             diff_dct_viz = prepare_dct_viz(diff_dct)
-            
             # Log images and metrics
             wandb.log({
                 "spectral/dct_coefficients": wandb.Image(
@@ -746,8 +732,7 @@ class SpectralAnalyzer:
             wandb.log({
                 "spectral/wavelets": wandb.Image(wavelet_viz),
             }, step=step)
-            
-        return metrics
+        return metrics        
     
     def visualize_wavelets(self, orig_wav_ll, orig_wav_bands, recon_wav_ll, recon_wav_bands, step):
         """Visualize wavelet decomposition."""
@@ -771,7 +756,6 @@ class SpectralAnalyzer:
                 orig_band = torch.unbind(orig_band, dim=2)[i-1]
                 recon_band = torch.unbind(recon_band, dim=2)[i-1]
             
-            
             if len(orig_band.shape) == 4:
                 # Take first batch item, all channels
                 orig_band = orig_band[0].cpu().detach()
@@ -790,7 +774,6 @@ class SpectralAnalyzer:
                 # Convert to numpy and rearrange dimensions: (channels, height, width) -> (height, width, channels)
                 orig_band_np = orig_band.permute(1, 2, 0).numpy()
                 recon_band_np = recon_band.permute(1, 2, 0).numpy()
-                
                 # If channels = 1, remove the channel dimension
                 if orig_band.shape[0] == 1:
                     orig_band_np = orig_band_np.squeeze(-1)
@@ -800,11 +783,11 @@ class SpectralAnalyzer:
                 orig_band_np = orig_band.numpy()
                 recon_band_np = recon_band.numpy()
             
-            axes[i, 0].imshow(orig_band_np, cmap='viridis' )#if len(orig_band_np.shape) == 2 else None)
+            axes[i, 0].imshow(orig_band_np, cmap='viridis' )
             axes[i, 0].set_title(f"Original Band {mapping[i]}")
             axes[i, 0].axis("off")
             
-            axes[i, 1].imshow(recon_band_np, cmap='viridis' )#if len(recon_band_np.shape) == 2 else None)
+            axes[i, 1].imshow(recon_band_np, cmap='viridis' )
             axes[i, 1].set_title(f"Reconstructed Band {mapping[i]}")
             axes[i, 1].axis("off")
         
@@ -814,8 +797,7 @@ class SpectralAnalyzer:
         os.makedirs("results/wavelet_viz", exist_ok=True)
         plt.savefig(os.path.join("results/wavelet_viz", f"wavelet_visualization_step_{step}.png"))
         plt.close(fig)
-        
-        return fig
+        return fig        
 
 def set_seed(seed):
     """Sets the random seed for reproducibility."""
@@ -825,6 +807,6 @@ def set_seed(seed):
         random.seed(seed)
 
 
-
 if __name__ == "__main__":
+
     main()
