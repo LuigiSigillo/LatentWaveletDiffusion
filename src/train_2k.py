@@ -797,6 +797,10 @@ def main(args):
                 # zt = (1 - texp) * x + texp * z1
                 sigmas = get_sigmas(timesteps, n_dim=model_input.ndim, dtype=model_input.dtype)
                 noisy_model_input = (1.0 - sigmas) * model_input + sigmas * noise
+                from new_wav_attn_maps import compute_wavelet_attention, get_mask_batch
+                A = compute_wavelet_attention(noisy_model_input)  # shape: (B, H, W)
+                M = get_mask_batch(A, l=0.1, T=noise_scheduler.config.num_train_timesteps, timesteps=indices)
+
 
                 packed_noisy_model_input = FluxPipeline._pack_latents(
                     noisy_model_input,
@@ -841,7 +845,12 @@ def main(args):
             target = noise - model_input
 
             # Compute regular loss.
-            loss = (weighting.float() * (model_pred.float() - target.float()) ** 2).mean()
+            # loss = (weighting.float() * (model_pred.float() - target.float()) ** 2).mean()
+            
+            #TODO
+            # New (masked) 
+            masked_diff = M * (model_pred - target)  # shape (B, C, H, W)
+            loss = (weighting.float() * masked_diff.pow(2)).mean()
 
             accelerator.backward(loss)
             if accelerator.sync_gradients:
