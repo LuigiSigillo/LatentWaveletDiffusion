@@ -66,7 +66,9 @@ def filter_parquet_files(parquet_files, min_width=1920, min_height=1080):
     for file_path in parquet_files:
         queries.append(
             f"SELECT * FROM read_parquet('{file_path}') "
-            f"WHERE WIDTH >= {min_width} AND HEIGHT >= {min_height}"
+            f"WHERE (WIDTH >= {min_width} AND HEIGHT >= {min_height}) "
+            f"OR (HEIGHT >= {min_width} AND WIDTH >= {min_height})"
+            #on purpose switched to take both wxh or hxw satisfied
         )
     
     query = " UNION ALL ".join(queries) if len(queries) > 1 else queries[0]
@@ -89,6 +91,10 @@ def download_image(url, save_path):
     Returns:
         bool: True if successful, False otherwise
     """
+     # Check if the file already exists
+    if os.path.exists(save_path):
+        # logger.info(f"File already exists, skipping download: {save_path}")
+        return True
     try:
         response = requests.get(url, stream=True, timeout=10)
         response.raise_for_status()
@@ -99,7 +105,7 @@ def download_image(url, save_path):
         
         return True
     except Exception as e:
-        logger.error(f"Error downloading {url}: {e}")
+        # logger.error(f"Error downloading {url}: {e}")
         # Remove partially downloaded file if it exists
         if os.path.exists(save_path):
             try:
@@ -353,13 +359,13 @@ def remove_corrupted_images(folder_path):
 
 def main():
     parser = argparse.ArgumentParser(description="Filter parquet files and download images with metadata")
-    parser.add_argument("--parquet-folder", required=True, help="Path to folder containing parquet files")
-    parser.add_argument("--output-dir", required=True, help="Directory to save images and JSON files")
-    parser.add_argument("--filtered-output", help="File path to save filtered parquet data")
-    parser.add_argument("--max-workers", type=int, default=10, help="Maximum number of concurrent downloads")
+    parser.add_argument("--parquet_folder", required=True, help="Path to folder containing parquet files")
+    parser.add_argument("--output_dir", required=True, help="Directory to save images and JSON files")
+    parser.add_argument("--filtered_output", help="File path to save filtered parquet data")
+    parser.add_argument("--max_workers", type=int, default=10, help="Maximum number of concurrent downloads")
     parser.add_argument("--limit", type=int, default=20000, help="Maximum number of files to download (default: 20000)")
-    parser.add_argument("--min-width", type=int, default=1920, help="Minimum image width for filtering (default: 1920)")
-    parser.add_argument("--min-height", type=int, default=1080, help="Minimum image height for filtering (default: 1080)")
+    parser.add_argument("--min_width", type=int, default=1920, help="Minimum image width for filtering (default: 1920)")
+    parser.add_argument("--min_height", type=int, default=1080, help="Minimum image height for filtering (default: 1080)")
     
     args = parser.parse_args()
     

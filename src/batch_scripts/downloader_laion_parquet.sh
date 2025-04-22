@@ -1,5 +1,13 @@
-export HF_TOKEN=""
-export DOWNLOAD_DIR="/mnt/share/Luigi/Documents/URAE/dataset/laion_high_resolution_parquet"
+#!/bin/bash
+
+# Check if the required arguments are provided
+if [ "$#" -ne 2 ]; then
+  echo "Usage: $0 <HF_TOKEN> <DOWNLOAD_DIR>"
+  exit 1
+fi
+
+HF_TOKEN="$1"
+DOWNLOAD_DIR="$2"
 
 mkdir -p "$DOWNLOAD_DIR"  # Create the folder if it doesn't exist
 
