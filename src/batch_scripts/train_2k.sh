@@ -1,10 +1,10 @@
 export MODEL_NAME="black-forest-labs/FLUX.1-dev"
-export VAE_MODEL_NAME="/mnt/share/Luigi/Documents/URAE/src/vae_SE_finetuning/ckpt/vae_new_finetuned_LAION/checkpoint-14000"
+export VAE_MODEL_NAME="/mnt/share/Luigi/Documents/URAE/src/vae_SE_finetuning/ckpt/vae_SE_512/checkpoint-60000"
 export DATA_DIR="/mnt/share/Luigi/Documents/URAE/dataset/laion_high_resolution_images"
 export LATENT_CODE_DIR="/mnt/share/Luigi/Documents/URAE/dataset/latent_codes_VAE_SE"
 export OUTPUT_DIR="/mnt/share/Luigi/Documents/URAE/src/ckpt/URAE_VAE_NEW_SE_LAION"
 export PRECISION="bf16"
-export CUDA_VISIBLE_DEVICES=0,1,3
+export CUDA_VISIBLE_DEVICES=0,1,2
 accelerate launch --num_processes 3 --multi_gpu --mixed_precision $PRECISION src/train_2k.py \
   --pretrained_model_name_or_path=$MODEL_NAME  \
   --pretrained_vae_path=$VAE_MODEL_NAME \

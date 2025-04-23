@@ -1,8 +1,8 @@
 export NUM_WORKERS=4
 export DATA_DIR="/mnt/share/Luigi/Documents/URAE/dataset/laion_high_resolution_images"
-export OUTPUT_DIR="/mnt/share/Luigi/Documents/URAE/dataset/latent_codes_VAE_SE"
+export OUTPUT_DIR="/mnt/share/Luigi/Documents/URAE/dataset/latents_VAE_SE"
 # export MODEL_NAME="black-forest-labs/FLUX.1-dev"
-export MODEL_NAME="/mnt/share/Luigi/Documents/URAE/src/vae_SE_finetuning/ckpt/vae_new_finetuned_LAION/checkpoint-14000"
+export MODEL_NAME="/mnt/share/Luigi/Documents/URAE/src/vae_SE_finetuning/ckpt/vae_SE_512/checkpoint-60000"
 export CUDA_VISIBLE_DEVICES=0,1,2,3
 torchrun --nproc_per_node=$NUM_WORKERS src/cache_latent_codes.py \
     --data_root=$DATA_DIR \

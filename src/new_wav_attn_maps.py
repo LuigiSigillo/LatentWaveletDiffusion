@@ -1,23 +1,25 @@
 import torch
 import torch.nn.functional as F
-from pytorch_wavelets import DWTForward  # Discrete Wavelet Transform
 
-def compute_wavelet_attention(latent, wave='haar'):
+def compute_wavelet_attention(latent, dwt):
     """
     Compute wavelet-based attention map from a VAE latent.
 
     Args:
         latent (Tensor): Latent tensor of shape (B, C, H, W)
-        wave (str): Wavelet type (e.g., 'haar', 'db1', etc.)
+        dwt: Wavelet transform module
 
     Returns:
         attn_map (Tensor): Attention map of shape (B, H, W), values in [0, 1]
     """
     B, C, H, W = latent.shape
-    dwt = DWTForward(J=1, wave=wave).to(latent.device)
+    
+    # Store original dtype and cast to float32 for wavelets processing
+    original_dtype = latent.dtype
+    latent_float32 = latent.to(dtype=torch.float32)
 
     # Apply 2D DWT to each channel
-    LL, high = dwt(latent)  # LL: low-frequency, high[0]: (B, 3, C, H//2, W//2)
+    LL, high = dwt(latent_float32)  # LL: low-frequency, high[0]: (B, 3, C, H//2, W//2)
     LH, HL, HH = high[0][:, 0], high[0][:, 1], high[0][:, 2]  # each: (B, C, H//2, W//2)
 
     # Compute average energy across channels
@@ -35,7 +37,37 @@ def compute_wavelet_attention(latent, wave='haar'):
     attn_map = (attn_map - attn_map.amin(dim=(1, 2), keepdim=True)) / \
                (attn_map.amax(dim=(1, 2), keepdim=True) - attn_map.amin(dim=(1, 2), keepdim=True) + 1e-8)
 
-    return attn_map  # shape: (B, H, W)
+    # Convert back to original dtype before returning
+    return attn_map.to(dtype=original_dtype)  # shape: (B, H, W)
+
+
+def get_mask_batch(A, l, T, timesteps):
+    """
+    Vectorized version of get_mask for a batch of timesteps.
+    
+    Args:
+        A (Tensor): Wavelet attention map, shape (B, H, W), values in [0, 1]
+        l (float): Lower bound (e.g., 0.1)
+        T (int): Total number of timesteps
+        timesteps (Tensor): Tensor of shape (B,) with values in [0, T]
+    
+    Returns:
+        M (Tensor): Binary mask, shape (B, 1, H, W)
+    """
+    B, H, W = A.shape
+    device = A.device
+    # Ensure consistent dtype and device for calculations
+    original_dtype = A.dtype
+    A_float = A.to(dtype=torch.float32, device=device)
+    
+    # Make sure timesteps is on the same device as A
+    timesteps = timesteps.to(device=device)
+    t_matrix = timesteps.view(B, 1, 1).expand(B, H, W).to(dtype=torch.float32, device=device)
+    
+    thresholds = T * (A_float + l)  # shape (B, H, W)
+    M = (thresholds >= t_matrix).float()  # shape (B, H, W)
+    
+    return M.unsqueeze(1).to(dtype=original_dtype, device=device)  # shape (B, 1, H, W)
 
 def get_mask(A, l=0.1, T=1000, t=0):
     """
@@ -57,29 +89,6 @@ def get_mask(A, l=0.1, T=1000, t=0):
     M = (threshold >= t).float()  # shape: (B, H, W)
 
     return M
-
-
-def get_mask_batch(A, l, T, timesteps):
-    """
-    Vectorized version of get_mask for a batch of timesteps.
-    
-    Args:
-        A (Tensor): Wavelet attention map, shape (B, H, W), values in [0, 1]
-        l (float): Lower bound (e.g., 0.1)
-        T (int): Total number of timesteps
-        timesteps (Tensor): Tensor of shape (B,) with values in [0, T]
-    
-    Returns:
-        M (Tensor): Binary mask, shape (B, 1, H, W)
-    """
-    B, H, W = A.shape
-    thresholds = T * (A + l)  # shape (B, H, W)
-
-    # Expand timesteps to shape (B, H, W) for broadcasting
-    t_matrix = timesteps.view(B, 1, 1).expand(B, H, W).float()
-
-    M = (thresholds >= t_matrix).float()  # shape (B, H, W)
-    return M.unsqueeze(1)  # shape (B, 1, H, W)
 
 
 import matplotlib.pyplot as plt
