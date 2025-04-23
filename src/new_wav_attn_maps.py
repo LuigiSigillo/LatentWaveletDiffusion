@@ -97,10 +97,16 @@ def show_mask(A, M, sample_idx=0):
     fig, axs = plt.subplots(1, 2, figsize=(10, 4))
     axs[0].imshow(A[sample_idx].detach().cpu(), cmap='viridis')
     axs[0].set_title('Wavelet Attention Map')
-    axs[1].imshow(M[sample_idx, 0].detach().cpu(), cmap='gray')
+    
+    # Check if M has a channel dimension
+    if M.dim() == 4:  # (B, 1, H, W)
+        mask_to_show = M[sample_idx, 0].detach().cpu()
+    else:  # (B, H, W)
+        mask_to_show = M[sample_idx].detach().cpu()
+        
+    axs[1].imshow(mask_to_show, cmap='gray')
     axs[1].set_title('Binary Mask at timestep')
-    plt.show()
-
+    plt.savefig("mask.png", dpi=300)
 
 if __name__ == "__main__":
     # Example usage
@@ -113,9 +119,14 @@ if __name__ == "__main__":
     # z = vae.encode(input)  # Example encoding step
 
     # Example setup
-    A = compute_wavelet_attention(latent)  # (B, H, W)
+    from pytorch_wavelets import DWTForward
+    A = compute_wavelet_attention(latent, DWTForward(J=1,wave="haar"))  # (B, H, W)
     T = 1000
     l = 0.1
-    for t in reversed(range(T)):
-        M = get_mask(A, l, T, t)
-        # Use M for masked diffusion step here
+    M = get_mask(A, l, T, 500)
+    show_mask(A, M, sample_idx=0)
+
+    # for t in reversed(range(T)):
+    #     M = get_mask(A, l, T, t)
+    #     # Use M for masked diffusion step here
+    #     show_mask(A, M, sample_idx=0)
