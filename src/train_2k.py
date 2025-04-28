@@ -452,18 +452,24 @@ def main(args):
             subfolder="vae",
             revision=args.revision,
             variant=args.variant,
+            cache_dir=args.cache_dir,
+
         ) if args.pretrained_vae_path is not None else \
         AutoencoderKL.from_pretrained(
             args.pretrained_model_name_or_path,
             subfolder="vae",
             revision=args.revision,
             variant=args.variant,
+            cache_dir=args.cache_dir,
+
         )
     print(f"VAE loaded from {args.pretrained_vae_path if args.pretrained_vae_path is not None else args.pretrained_model_name_or_path}")	
 
 
     transformer = FluxTransformer2DModel.from_pretrained(
-        args.pretrained_model_name_or_path, subfolder="transformer", revision=args.revision, variant=args.variant
+        args.pretrained_model_name_or_path, subfolder="transformer", revision=args.revision, variant=args.variant, 
+        cache_dir=args.cache_dir,
+
     )
     print(f"Transformer loaded from {args.pretrained_model_name_or_path}")
     attn_processors = {}
