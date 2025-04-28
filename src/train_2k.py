@@ -753,6 +753,7 @@ def main(args):
     transformer.train()
     loader_iter = iter(train_dataloader)
     if args.wavelet_attention:
+        print("Wavelet attention is enabled")
         from new_wav_attn_maps import compute_wavelet_attention, get_mask_batch
         from pytorch_wavelets import DWTForward  # Discrete Wavelet Transform
         dwt = DWTForward(J=1, wave="haar").to(accelerator.device)
