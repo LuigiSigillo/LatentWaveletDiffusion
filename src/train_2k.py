@@ -337,6 +337,11 @@ def parse_args(input_args=None):
         ),
     )
     parser.add_argument("--local_rank", type=int, default=-1, help="For distributed training: local_rank")
+    parser.add_argument(
+        "--wavelet_attention",
+        action="store_true",
+        help="Whether or not to use wavelet attention.",
+    )
 
     if input_args is not None:
         args = parser.parse_args(input_args)
@@ -753,6 +758,12 @@ def main(args):
 
     transformer.train()
     loader_iter = iter(train_dataloader)
+    if args.wavelet_attention:
+        print("Wavelet attention is enabled")
+        from new_wav_attn_maps import compute_wavelet_attention, get_mask_batch
+        from pytorch_wavelets import DWTForward  # Discrete Wavelet Transform
+        dwt = DWTForward(J=1, wave="haar").to(accelerator.device)
+
     while True:
         try:
             batch = loader_iter.__next__()
@@ -803,9 +814,15 @@ def main(args):
                 # zt = (1 - texp) * x + texp * z1
                 sigmas = get_sigmas(timesteps, n_dim=model_input.ndim, dtype=model_input.dtype)
                 noisy_model_input = (1.0 - sigmas) * model_input + sigmas * noise
-                from new_wav_attn_maps import compute_wavelet_attention, get_mask_batch
-                A = compute_wavelet_attention(noisy_model_input)  # shape: (B, H, W)
-                M = get_mask_batch(A, l=0.1, T=noise_scheduler.config.num_train_timesteps, timesteps=indices)
+                
+                #TODO new
+                if args.wavelet_attention:
+                    A = compute_wavelet_attention(noisy_model_input, dwt)  # shape: (B, H, W)
+                    # M = get_mask_batch(A, l=0.1, T=noise_scheduler.config.num_train_timesteps, timesteps=indices)
+                    M = get_mask_batch(A, l=0.1, T=noise_scheduler.config.num_train_timesteps, timesteps=timesteps)
+                    # print("indices:", indices[:5])
+                    # print("timesteps:", timesteps[:5])
+                    # print("scheduler.timesteps:", noise_scheduler.timesteps[:10])
 
 
                 packed_noisy_model_input = FluxPipeline._pack_latents(
@@ -849,14 +866,14 @@ def main(args):
 
             # flow matching loss
             target = noise - model_input
-
             # Compute regular loss.
-            # loss = (weighting.float() * (model_pred.float() - target.float()) ** 2).mean()
-            
+            if not args.wavelet_attention:
+                loss = (weighting.float() * (model_pred.float() - target.float()) ** 2).mean()
             #TODO
-            # New (masked) 
-            masked_diff = M * (model_pred - target)  # shape (B, C, H, W)
-            loss = (weighting.float() * masked_diff.pow(2)).mean()
+            # New (masked)
+            else:
+                masked_diff = M * (model_pred - target)  # shape (B, C, H, W)
+                loss = (weighting.float() * masked_diff.pow(2)).mean()
 
             accelerator.backward(loss)
             if accelerator.sync_gradients:
