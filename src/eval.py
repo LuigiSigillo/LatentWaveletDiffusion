@@ -1,495 +1,269 @@
+import pyiqa
+import torch
 import os
 import torch
-import argparse
-from PIL import Image
-from torchvision import transforms
-from tqdm import tqdm
-import numpy as np
-from typing import Optional, List, Dict, Any
 from huggingface_hub import hf_hub_download
+# # Add the parent directory of 'pipeline_flux' to the Python path
+# print(os.path.abspath(os.path.join(os.getcwd(), '..', '..')))
+# sys.path.append(os.path.abspath(os.path.join(os.getcwd(), '..', '..')))
+from pipeline_flux import FluxPipeline
+from transformer_flux import FluxTransformer2DModel
+import hpsv2
+from tqdm import tqdm
+import argparse
 
-# For image generation (from notebook)
-try:
-    from pipeline_flux import FluxPipeline
-    from transformer_flux import FluxTransformer2DModel
-except ImportError:
-    print("Warning: FLUX pipeline modules not found. Image generation will not work.")
-
-def load_images_from_folder(folder_path: str, 
-                           transform: Optional[transforms.Compose] = None,
-                           max_images: Optional[int] = None) -> List[torch.Tensor]:
-    """Load images from a folder and apply transformations."""
-    if not os.path.exists(folder_path):
-        raise ValueError(f"Folder {folder_path} does not exist")
+def evaluate_image_quality(metric_name, dist_path, ref_path=None, dataset_name=None, dataset_res=None, dataset_split=None):
+    """
+    Evaluate image quality using specified metric.
     
-    # Get all image files recursively
-    image_files = []
-    for root, _, files in os.walk(folder_path):
-        for file in files:
-            if file.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
-                image_files.append(os.path.join(root, file))
+    Args:
+        metric_name (str): Name of the metric to use (e.g., 'lpips', 'fid', 'maniqa', 'qualiclip')
+        dist_path (str): Path to distorted image or directory
+        ref_path (str, optional): Path to reference image or directory. Required for FR metrics.
+        dataset_name (str, optional): Dataset name for FID. Only used with FID metric.
+        dataset_res (int, optional): Dataset resolution for FID. Only used with FID metric.
+        dataset_split (str, optional): Dataset split for FID. Only used with FID metric.
     
-    if max_images is not None:
-        image_files = image_files[:max_images]
-    
-    images = []
-    for img_path in tqdm(image_files, desc="Loading images"):
-        try:
-            with Image.open(img_path) as img:
-                img = img.convert('RGB')
-                if transform:
-                    img_tensor = transform(img)
-                else:
-                    default_transform = transforms.Compose([
-                        transforms.ToTensor(),
-                    ])
-                    img_tensor = default_transform(img)
-                images.append(img_tensor)
-        except Exception as e:
-            print(f"Error loading image {img_path}: {e}")
-    
-    return images
-
-def calculate_fid(generated_images: List[torch.Tensor], 
-                 real_images: List[torch.Tensor] = None,
-                 feature_dims: int = 2048) -> float:
-    """Calculate FID score between generated images and real images."""
-    try:
-        from torchmetrics.image.fid import FrechetInceptionDistance
-        
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        fid = FrechetInceptionDistance(feature=feature_dims, normalize=True)
-        fid = fid.to(device)
-        
-        # If no real images provided, use generated as both sets (for self-consistency)
-        if real_images is None:
-            print("No reference images provided. FID will measure self-consistency.")
-            halfway = len(generated_images) // 2
-            real_images = generated_images[halfway:]
-            generated_images = generated_images[:halfway]
-            if len(generated_images) < 10:
-                print("Warning: Few images for meaningful FID calculation")
-        
-        # Process generated images
-        for img in tqdm(generated_images, desc="Processing generated images for FID"):
-            img = img.to(device)
-            # FID expects images in [0, 255] range
-            img = (img * 255).byte()
-            if img.shape[0] == 3:  # Ensure NCHW format
-                img = img.unsqueeze(0)
-            fid.update(img, real=False)
-        
-        # Process real images
-        for img in tqdm(real_images, desc="Processing real images for FID"):
-            img = img.to(device)
-            img = (img * 255).byte()
-            if img.shape[0] == 3:
-                img = img.unsqueeze(0)
-            fid.update(img, real=True)
-        
-        # Calculate FID
-        return fid.compute().item()
-    except ImportError:
-        print("FID calculation requires torchmetrics. Install with: pip install torchmetrics")
-        return float('nan')
-    except Exception as e:
-        print(f"Error calculating FID: {e}")
-        return float('nan')
-
-def calculate_lpips(generated_images: List[torch.Tensor], 
-                   reference_images: List[torch.Tensor] = None) -> float:
-    """Calculate LPIPS score between generated images and reference images."""
-    try:
-        import lpips
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        lpips_model = lpips.LPIPS(net='alex').to(device)
-        
-        # If no reference images, compare consecutive images
-        if reference_images is None:
-            print("No reference images provided. Using consecutive image comparisons for LPIPS.")
-            lpips_scores = []
-            for i in tqdm(range(len(generated_images)-1), desc="Calculating LPIPS"):
-                img1 = generated_images[i].unsqueeze(0).to(device)
-                img2 = generated_images[i+1].unsqueeze(0).to(device)
-                
-                with torch.no_grad():
-                    lpips_score = lpips_model(img1, img2)
-                lpips_scores.append(lpips_score.item())
-        else:
-            # Make sure we have the same number of generated and reference images
-            n = min(len(generated_images), len(reference_images))
-            
-            lpips_scores = []
-            for i in tqdm(range(n), desc="Calculating LPIPS"):
-                img1 = generated_images[i].unsqueeze(0).to(device)
-                img2 = reference_images[i].unsqueeze(0).to(device)
-                
-                with torch.no_grad():
-                    lpips_score = lpips_model(img1, img2)
-                lpips_scores.append(lpips_score.item())
-        
-        return np.mean(lpips_scores)
-    except ImportError:
-        print("LPIPS not installed. Install with: pip install lpips")
-        return float('nan')
-    except Exception as e:
-        print(f"Error calculating LPIPS: {e}")
-        return float('nan')
-
-def calculate_man_iqa(images: List[torch.Tensor]) -> float:
-    """Calculate MAN-IQA scores for the images."""
-    try:
-        from pyiqa import create_metric
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        
-        # Create MAN-IQA metric
-        metric = create_metric('maniqa', device=device)
-        
-        scores = []
-        for img in tqdm(images, desc="Calculating MAN-IQA"):
-            # MAN-IQA expects images in range [0, 1]
-            img_tensor = img.unsqueeze(0).to(device)
-            with torch.no_grad():
-                score = metric(img_tensor).item()
-            scores.append(score)
-        
-        return np.mean(scores)
-    except ImportError:
-        print("MAN-IQA not available. Install with: pip install pyiqa")
-        return float('nan')
-    except Exception as e:
-        print(f"Error calculating MAN-IQA: {e}")
-        return float('nan')
-
-def calculate_qualiclip(images: List[torch.Tensor], prompts: List[str] = None) -> float:
-    """Calculate a CLIP-based image quality score."""
-    try:
-        import clip
-        import torch.nn.functional as F
-        
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        model, preprocess = clip.load("ViT-B/32", device=device)
-        
-        # Process images
-        image_features_list = []
-        for img in tqdm(images, desc="Processing images for CLIP score"):
-            # Convert tensor to PIL for CLIP preprocessing
-            pil_img = transforms.ToPILImage()(img)
-            processed_img = preprocess(pil_img).unsqueeze(0).to(device)
-            
-            with torch.no_grad():
-                image_features = model.encode_image(processed_img)
-                image_features = F.normalize(image_features, dim=-1)
-                image_features_list.append(image_features)
-        
-        if prompts and len(prompts) == len(images):
-            # Calculate text-image alignment scores
-            scores = []
-            for i, prompt in enumerate(tqdm(prompts, desc="Calculating prompt-image alignment")):
-                text = clip.tokenize([prompt]).to(device)
-                with torch.no_grad():
-                    text_features = model.encode_text(text)
-                    text_features = F.normalize(text_features, dim=-1)
-                
-                # Calculate cosine similarity
-                similarity = (100 * (image_features_list[i] @ text_features.T)).item()
-                scores.append(similarity)
-            
-            return np.mean(scores)
-        else:
-            print("No prompts provided for QualiCLIP. Using image-image consistency.")
-            # Calculate image-image consistency as alternative
-            similarities = []
-            for i in range(len(image_features_list)):
-                for j in range(i+1, len(image_features_list)):
-                    sim = (100 * (image_features_list[i] @ image_features_list[j].T)).item()
-                    similarities.append(sim)
-            
-            return np.mean(similarities) if similarities else float('nan')
-    
-    except ImportError:
-        print("CLIP not installed. Install with: pip install ftfy regex tqdm git+https://github.com/openai/CLIP.git")
-        return float('nan')
-    except Exception as e:
-        print(f"Error calculating CLIP-based score: {e}")
-        return float('nan')
-
-def calculate_pickscore(images: List[torch.Tensor], prompts: List[str]) -> float:
-    """Calculate Pickscore for images based on text prompts."""
-    try:
-        from pickscore import PickScore
-        
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        pick_score = PickScore(device=device)
-        
-        if len(prompts) != len(images):
-            print("Warning: Number of prompts and images must match for Pickscore")
-            return float('nan')
-        
-        # Convert tensor images to PIL images for Pickscore
-        pil_images = [transforms.ToPILImage()(img) for img in images]
-        
-        # Calculate scores
-        scores = pick_score.compute_image_text_similarity(pil_images, prompts)
-        return scores.mean().item()
-    
-    except ImportError:
-        print("Pickscore not installed. Install with: pip install pickscore")
-        return float('nan')
-    except Exception as e:
-        print(f"Error calculating Pickscore: {e}")
-        return float('nan')
-
-def setup_flux_model(device: str = None, ckpt_path: str = None):
-    """Set up the FLUX model for image generation."""
-    if device is None:
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    else:
-        device = torch.device(device)
-    
-    dtype = torch.bfloat16
-    bfl_repo = "black-forest-labs/FLUX.1-dev"
-    
-    try:
-        # Load transformer model
-        transformer = FluxTransformer2DModel.from_pretrained(
-            bfl_repo, subfolder="transformer", torch_dtype=dtype
-        )
-        
-        # Load pipeline
-        pipe = FluxPipeline.from_pretrained(
-            bfl_repo, transformer=transformer, torch_dtype=dtype
-        )
-        
-        # Configure scheduler
-        pipe.scheduler.config.use_dynamic_shifting = False
-        pipe.scheduler.config.time_shift = 10
-        
-        # Download and load URAE adapter weights if needed
-        if not os.path.exists('ckpt/urae_2k_adapter.safetensors'):
-            os.makedirs('ckpt', exist_ok=True)
-            hf_hub_download(
-                repo_id="Huage001/URAE", 
-                filename='urae_2k_adapter.safetensors', 
-                local_dir='ckpt', 
-                local_dir_use_symlinks=False
-            )
-        
-        pipe.load_lora_weights("ckpt/urae_2k_adapter.safetensors")
-        
-        # Load custom checkpoint if provided
-        if ckpt_path and os.path.exists(ckpt_path):
-            pipe.load_lora_weights(ckpt_path)
-            print(f"Loaded custom checkpoint: {ckpt_path}")
-            
-        pipe = pipe.to(device)
-        return pipe
-        
-    except Exception as e:
-        print(f"Error setting up FLUX model: {e}")
-        return None
-
-def generate_images(pipe, output_dir: str, prompts: List[str], 
-                   height: int = 2048, width: int = 2048, 
-                   seed: int = 8888):
-    """Generate images using the FLUX pipeline."""
-    os.makedirs(output_dir, exist_ok=True)
-    
-    images = []
-    for idx, prompt in enumerate(tqdm(prompts, desc="Generating images")):
-        image = pipe(
-            prompt,
-            height=height,
-            width=width,
-            guidance_scale=3.5,
-            num_inference_steps=28,
-            max_sequence_length=512,
-            generator=torch.manual_seed(seed),
-            ntk_factor=10,
-            proportional_attention=True
-        ).images[0]
-        
-        # Save the image
-        image_path = os.path.join(output_dir, f"{idx:05d}.jpg")
-        image.save(image_path)
-        images.append(image)
-    
-    return images
-
-def evaluate_images(
-    generated_folder: str, 
-    reference_folder: Optional[str] = None,
-    prompts_file: Optional[str] = None,
-    prompts_list: Optional[List[str]] = None,
-    max_images: Optional[int] = None,
-    eval_hpsv2: bool = True
-) -> Dict[str, float]:
-    """Evaluate images using multiple metrics."""
-    
-    # Define transforms
-    transform = transforms.Compose([
-        transforms.Resize((299, 299)),  # Standard size for inception-based metrics
-        transforms.ToTensor(),
-    ])
-    
-    # Load images
-    generated_images = load_images_from_folder(generated_folder, transform, max_images)
-    print(f"Loaded {len(generated_images)} generated images")
-    
-    reference_images = None
-    if reference_folder and os.path.exists(reference_folder):
-        reference_images = load_images_from_folder(reference_folder, transform, max_images)
-        print(f"Loaded {len(reference_images)} reference images")
-    
-    # Load prompts
-    prompts = []
-    if prompts_list:
-        prompts = prompts_list
-    elif prompts_file and os.path.exists(prompts_file):
-        with open(prompts_file, 'r', encoding='utf-8') as f:
-            prompts = [line.strip() for line in f]
-    
-    # Match number of prompts to images
-    if prompts:
-        if len(prompts) < len(generated_images):
-            print(f"Warning: Fewer prompts ({len(prompts)}) than images ({len(generated_images)})")
-            prompts = prompts + [""] * (len(generated_images) - len(prompts))
-        if len(prompts) > len(generated_images):
-            prompts = prompts[:len(generated_images)]
-        
-        print(f"Using {len(prompts)} prompts for evaluation")
-    
-    # Calculate metrics
-    results = {}
-    
-    print("Calculating FID score...")
-    results["FID"] = calculate_fid(generated_images, reference_images)
-    
-    print("Calculating LPIPS score...")
-    results["LPIPS"] = calculate_lpips(generated_images, reference_images)
-    
-    print("Calculating MAN-IQA score...")
-    results["MAN-IQA"] = calculate_man_iqa(generated_images)
-    
-    print("Calculating QualiCLIP score...")
-    results["QualiCLIP"] = calculate_qualiclip(generated_images, prompts)
-    
-    if prompts:
-        print("Calculating Pickscore...")
-        results["Pickscore"] = calculate_pickscore(generated_images, prompts)
-    
-    # Run hpsv2 evaluation if requested
-    if eval_hpsv2:
-        try:
-            import hpsv2
-            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-            print("Running HPS-V2 evaluation...")
-            hpsv2_results = hpsv2.evaluate(generated_folder, device=device)
-            
-            # Merge results
-            for k, v in hpsv2_results.items():
-                results[f"HPS-{k}"] = v
-        except ImportError:
-            print("HPS-V2 not installed. Skipping hpsv2 evaluation.")
-        except Exception as e:
-            print(f"Error in HPS-V2 evaluation: {e}")
-    
-    return results
-
-def main():
-    parser = argparse.ArgumentParser(description='FLUX Image Generation and Evaluation')
-    
-    # General options
-    parser.add_argument('--mode', type=str, choices=['generate', 'evaluate', 'both'], default='evaluate',
-                      help='Operation mode: generate images, evaluate existing ones, or both')
-    parser.add_argument('--device', type=str, default=None,
-                      help='Device to use (e.g., "cuda:0", "cuda:3")')
-    
-    # Generation options
-    parser.add_argument('--output_dir', type=str, default='output/generated',
-                      help='Directory to save generated images')
-    parser.add_argument('--height', type=int, default=2048,
-                      help='Image height for generation')
-    parser.add_argument('--width', type=int, default=2048,
-                      help='Image width for generation')
-    parser.add_argument('--checkpoint', type=str, default=None,
-                      help='Path to custom checkpoint for the model')
-    parser.add_argument('--seed', type=int, default=8888,
-                      help='Random seed for generation')
-    
-    # Evaluation options
-    parser.add_argument('--generated', type=str, default=None,
-                      help='Path to folder containing generated images')
-    parser.add_argument('--reference', type=str, default=None,
-                      help='Path to folder containing reference/real images')
-    parser.add_argument('--prompts', type=str, default=None,
-                      help='Path to text file containing prompts (one per line)')
-    parser.add_argument('--max_images', type=int, default=None,
-                      help='Maximum number of images to evaluate')
-    parser.add_argument('--no_hpsv2', action='store_true',
-                      help='Skip HPS-V2 evaluation')
-    
-    args = parser.parse_args()
-    
-    # Validate arguments
-    if args.mode in ['generate', 'both']:
-        if not args.prompts:
-            parser.error("--prompts is required when generating images")
-    
-    if args.mode in ['evaluate', 'both']:
-        if args.mode == 'evaluate' and not args.generated:
-            parser.error("--generated is required when evaluating without generation")
-    
-    # Set device
-    device = args.device if args.device else ("cuda" if torch.cuda.is_available() else "cpu")
+    Returns:
+        float: Computed quality score
+    """
+    # Check if CUDA is available
+    device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     print(f"Using device: {device}")
     
-    # Load prompts
-    prompts = []
-    if args.prompts and os.path.exists(args.prompts):
-        with open(args.prompts, 'r', encoding='utf-8') as f:
-            prompts = [line.strip() for line in f]
-        print(f"Loaded {len(prompts)} prompts from {args.prompts}")
+    # Create metric
+    iqa_metric = pyiqa.create_metric(metric_name, device=device)
     
-    # Generate images if requested
-    if args.mode in ['generate', 'both']:
-        pipe = setup_flux_model(device, args.checkpoint)
-        if pipe is None:
-            print("Failed to set up FLUX model. Exiting.")
-            return
+    # Display if lower or higher score is better
+    print(f"Metric: {metric_name}, Lower is better: {iqa_metric.lower_better}")
+    
+    # Identify if the metric is no-reference (NR)
+    nr_metrics = ['maniqa', 'qualiclip', 'niqe', 'brisque']
+    is_nr_metric = metric_name.lower() in nr_metrics
+    
+    # Compute score
+    if metric_name.lower() == 'fid':
+        if ref_path is not None:
+            score = iqa_metric(dist_path, ref_path)
+            print(f"FID score between {dist_path} and {ref_path}: {score:.4f}")
+        elif dataset_name is not None:
+            score = iqa_metric(dist_path, dataset_name=dataset_name, 
+                             dataset_res=dataset_res, dataset_split=dataset_split)
+            print(f"FID score between {dist_path} and {dataset_name} ({dataset_res}px, {dataset_split}): {score:.4f}")
+        else:
+            raise ValueError("For FID metric, either ref_path or dataset_name must be provided")
+    elif is_nr_metric:
+        # Handle no-reference metrics (MANIQA, QualiCLIP, etc.)
+        if os.path.isfile(dist_path):
+            score = iqa_metric(dist_path)
+            print(f"{metric_name} score for {dist_path}: {score:.4f}")
+        elif os.path.isdir(dist_path):
+            # Process all images in directory
+            total_score = 0
+            count = 0
+            for filename in os.listdir(dist_path):
+                if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff')):
+                    img_path = os.path.join(dist_path, filename)
+                    img_score = iqa_metric(img_path)
+                    print(f"{metric_name} score for {img_path}: {img_score:.4f}")
+                    total_score += img_score
+                    count += 1
+            
+            if count == 0:
+                raise ValueError(f"No valid images found in directory {dist_path}")
+            
+            score = total_score / count
+            print(f"Average {metric_name} score for all images in {dist_path}: {score:.4f}")
+        else:
+            raise ValueError(f"Invalid path for {metric_name}: {dist_path}")
+    else:
+        if ref_path is None:
+            raise ValueError(f"Reference path required for {metric_name} metric")
         
-        print(f"Generating {len(prompts)} images...")
-        generate_images(
-            pipe, 
-            args.output_dir, 
-            prompts,
+        # Check if paths are files or directories
+        if os.path.isfile(dist_path) and os.path.isfile(ref_path):
+            score = iqa_metric(dist_path, ref_path)
+            print(f"{metric_name} score between {dist_path} and {ref_path}: {score:.4f}")
+        else:
+            raise ValueError("For non-FID metrics, file paths should be provided")
+    
+    return score
+
+
+
+def generate_images(root_path_proj, checkpoint_path,device_str, height=2048, width=2048,seed=8888):
+    #load original model
+    bfl_repo="black-forest-labs/FLUX.1-dev"
+    device = torch.device(device_str)
+    dtype = torch.bfloat16
+    transformer = FluxTransformer2DModel.from_pretrained(bfl_repo, subfolder="transformer", torch_dtype=dtype)
+    pipe = FluxPipeline.from_pretrained(bfl_repo, transformer=transformer, torch_dtype=dtype)
+    pipe.scheduler.config.use_dynamic_shifting = False
+    pipe.scheduler.config.time_shift = 10
+    pipe = pipe.to(device)
+    
+    #our trained URAE
+    pipe.load_lora_weights(checkpoint_path)
+    pipe = pipe.to(device)
+
+    # Get benchmark prompts (<style> = all, anime, concept-art, paintings, photo)
+    all_prompts = hpsv2.benchmark_prompts('all') 
+    gen_seed = torch.manual_seed(seed=seed)
+    #take name by the checkpoint name
+    name_exp = checkpoint_path.split("/")[-2]
+    print(name_exp)
+    # Iterate over the benchmark prompts to generate images
+    for style, prompts in tqdm(all_prompts.items()):
+        # Create the directory if it doesn't exist
+        output_dir = os.path.join(root_path_proj,"src","output",name_exp, style)
+        print(output_dir)
+        os.makedirs(output_dir, exist_ok=True)
+        for idx, prompt in tqdm(enumerate(prompts), total=len(prompts)):
+            # image = TextToImageModel(prompt)
+            image = pipe(
+                prompt,
+                height=height,
+                width=width,
+                guidance_scale=3.5,
+                num_inference_steps=28,
+                max_sequence_length=512,
+                generator=gen_seed,
+                ntk_factor=10,
+                proportional_attention=True
+            ).images[0]
+            # TextToImageModel is the model you want to evaluate
+            image.save(os.path.join("output/"+name_exp, style, f"{idx:05d}.jpg")) 
+            # <image_path> is the folder path to store generated images, as the input of hpsv2.evaluate().
+
+    hps2 = hpsv2.evaluate("output/"+checkpoint_path.split("/")[-2],
+            device=device) 
+    return hps2
+
+
+def parse_arguments():
+    parser = argparse.ArgumentParser(description="Image generation and evaluation script")
+    
+    # General arguments
+    parser.add_argument('--checkpoint', type=str, required=True,
+                       help='Path to the checkpoint')
+    parser.add_argument('--device', type=str, default='cuda',
+                       help='Device to use (cuda or cpu)')
+    
+    # Generation options
+    parser.add_argument('--generate', action='store_true',
+                       help='Generate images using the checkpoint')
+    parser.add_argument('--height', type=int, default=2048,
+                       help='Height of generated images')
+    parser.add_argument('--width', type=int, default=2048,
+                       help='Width of generated images')
+    parser.add_argument('--seed', type=int, default=8888,
+                       help='Random seed for generation')
+    
+    # Evaluation options
+    parser.add_argument('--evaluate', action='store_true',
+                       help='Evaluate image quality')
+    parser.add_argument('--metrics', nargs='+', default=['fid', 'lpips', 'maniqa', 'qualiclip'],
+                       help='List of metrics for evaluation (default: fid lpips maniqa qualiclip)')
+    parser.add_argument('--use_custom_paths', action='store_true',
+                       help='Use custom paths instead of deriving from checkpoint')
+    parser.add_argument('--dist_path', type=str, default=None,
+                       help='Custom path to distorted images (only if use_custom_paths is True)')
+    parser.add_argument('--ref_path', type=str, default=None,
+                       help='Custom path to reference images (only if use_custom_paths is True)')
+    
+    # FID specific options
+    parser.add_argument('--dataset_name', type=str, default=None,
+                       help='Dataset name for FID')
+    parser.add_argument('--dataset_res', type=int, default=None,
+                       help='Dataset resolution for FID')
+    parser.add_argument('--dataset_split', type=str, default=None,
+                       help='Dataset split for FID')
+    
+    # List metrics option
+    parser.add_argument('--list_metrics', action='store_true',
+                       help='List all available metrics')
+    
+    return parser.parse_args()
+
+if __name__ == "__main__":
+    args = parse_arguments()
+    
+    # List available metrics if requested
+    if args.list_metrics:
+        print("Available metrics:")
+        print(pyiqa.list_models())
+        exit(0)
+    
+    # Derive paths from checkpoint
+    checkpoint_path = args.checkpoint
+    name_exp = checkpoint_path.split("/")[-2]
+    root_path_proj = os.path.abspath(os.getcwd())
+    generated_path = os.path.join(root_path_proj,"src",f"output/{name_exp}")
+    print(f"Generated images will be saved to: {generated_path}")
+
+    # Generate images if requested
+    if args.generate:
+        print(f"Generating images using checkpoint: {args.checkpoint}")
+        hps2_score = generate_images(
+            root_path_proj,
+            args.checkpoint,
+            args.device,
             height=args.height,
             width=args.width,
             seed=args.seed
         )
-        print(f"Images generated and saved to {args.output_dir}")
+        print(f"HPS2 evaluation score: {hps2_score}")
     
-    # Evaluate images
-    if args.mode in ['evaluate', 'both']:
-        generated_dir = args.generated if args.generated else args.output_dir
+    # Evaluate with custom metrics if requested
+    if args.evaluate:
+        if not args.metrics:
+            print("Error: No metrics specified. Using default metrics: fid, lpips, maniqa, qualiclip")
+            args.metrics = ['fid', 'lpips', 'maniqa', 'qualiclip']
         
-        print(f"Evaluating images in {generated_dir}...")
-        results = evaluate_images(
-            generated_dir,
-            args.reference,
-            args.prompts,
-            prompts if args.mode == 'both' else None,
-            args.max_images,
-            not args.no_hpsv2
-        )
+        # Determine paths based on user choice
+        dist_path = args.dist_path if args.use_custom_paths else generated_path
+        ref_path = args.ref_path
         
-        # Print results
-        print("\nEvaluation Results:")
-        for metric, score in results.items():
-            if np.isnan(score):
-                print(f"{metric}: Not calculated")
-            else:
+        # If no paths were specified or derived
+        if not dist_path:
+            print("Error: No path for distorted images. Either generate images, specify --dist_path, or use a valid checkpoint.")
+            exit(1)
+        
+        # Store results for all metrics
+        results = {}
+        
+        # Run evaluation for each metric
+        for metric in args.metrics:
+            print(f"Evaluating with metric: {metric}")
+            
+            try:
+                # Skip metrics that require reference images if no reference is provided
+                if metric.lower() not in ['maniqa', 'qualiclip', 'niqe', 'brisque', 'fid'] and ref_path is None:
+                    print(f"Skipping {metric} - reference path required but not provided")
+                    continue
+                
+                # Run evaluation
+                score = evaluate_image_quality(
+                    metric,
+                    dist_path,
+                    ref_path=ref_path,
+                    dataset_name=args.dataset_name,
+                    dataset_res=args.dataset_res,
+                    dataset_split=args.dataset_split
+                )
+                results[metric] = score
+                print(f"Final {metric} score: {score:.4f}")
+                
+            except Exception as e:
+                print(f"Error evaluating with {metric}: {str(e)}")
+        
+        # Print summary of all results
+        if results:
+            print("\n=== Evaluation Summary ===")
+            for metric, score in results.items():
                 print(f"{metric}: {score:.4f}")
-
-if __name__ == "__main__":
-    main()
+    
+    # If neither generation nor evaluation was requested
+    if not args.generate and not args.evaluate and not args.list_metrics:
+        print("Error: You must specify at least one operation: --generate, --evaluate, or --list_metrics")
+        print("Use --help for more information")
