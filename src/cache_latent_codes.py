@@ -137,6 +137,7 @@ def main(args):
         subfolder="vae",
         revision=args.revision,
         variant=args.variant,
+        cache_dir=args.cache_dir,
     ).to(device, dtype)
     
     if args.resolution is not None and args.resolution > 3072:

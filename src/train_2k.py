@@ -457,18 +457,24 @@ def main(args):
             subfolder="vae",
             revision=args.revision,
             variant=args.variant,
+            cache_dir=args.cache_dir,
+
         ) if args.pretrained_vae_path is not None else \
         AutoencoderKL.from_pretrained(
             args.pretrained_model_name_or_path,
             subfolder="vae",
             revision=args.revision,
             variant=args.variant,
+            cache_dir=args.cache_dir,
+
         )
     print(f"VAE loaded from {args.pretrained_vae_path if args.pretrained_vae_path is not None else args.pretrained_model_name_or_path}")	
 
 
     transformer = FluxTransformer2DModel.from_pretrained(
-        args.pretrained_model_name_or_path, subfolder="transformer", revision=args.revision, variant=args.variant
+        args.pretrained_model_name_or_path, subfolder="transformer", revision=args.revision, variant=args.variant, 
+        cache_dir=args.cache_dir,
+
     )
     print(f"Transformer loaded from {args.pretrained_model_name_or_path}")
     attn_processors = {}
@@ -669,8 +675,9 @@ def main(args):
     vae_config_scaling_factor = vae.config.scaling_factor
     vae_config_block_out_channels = vae.config.block_out_channels
 
-    del vae
-    free_memory()
+    #TODO
+    # del vae
+    # free_memory()
 
     # Scheduler and math around the number of training steps.
     lr_scheduler = get_scheduler(
@@ -818,7 +825,6 @@ def main(args):
                     # print("timesteps:", timesteps[:5])
                     # print("scheduler.timesteps:", noise_scheduler.timesteps[:10])
 
-
                 packed_noisy_model_input = FluxPipeline._pack_latents(
                     noisy_model_input,
                     batch_size=model_input.shape[0],
@@ -847,6 +853,7 @@ def main(args):
                 ntk_factor=args.ntk_factor,
                 joint_attention_kwargs={'proportional_attention': args.proportional_attention}
             )[0]
+            
             model_pred = FluxPipeline._unpack_latents(
                 model_pred,
                 height=int(model_input.shape[2] * vae_scale_factor / 2),
@@ -869,6 +876,7 @@ def main(args):
                 masked_diff = M * (model_pred - target)  # shape (B, C, H, W)
                 loss = (weighting.float() * masked_diff.pow(2)).mean()
 
+            
             accelerator.backward(loss)
             if accelerator.sync_gradients:
                 params_to_clip = (
@@ -879,7 +887,25 @@ def main(args):
             optimizer.step()
             lr_scheduler.step()
             optimizer.zero_grad()
-
+            if global_step % 1 == 0 and accelerator.is_main_process:
+                # Call the visualization function
+                visualization_success = save_tensor_visualizations(
+                    A=A, 
+                    M=M,
+                    model_pred=model_pred,
+                    model_input=model_input,
+                    target=target,
+                    masked_diff=masked_diff,
+                    timesteps=timesteps,
+                    indices=indices,
+                    noise_scheduler=noise_scheduler,
+                    global_step=global_step,
+                    output_dir=args.output_dir,
+                    logger=logger,
+                    vae=vae,
+                )
+                if not visualization_success:
+                    raise Exception("Error during visualization saving process.")
         # Checks if the accelerator has performed an optimization step behind the scenes
         if accelerator.sync_gradients:
             progress_bar.update(1)
@@ -921,6 +947,150 @@ def main(args):
     accelerator.wait_for_everyone()
     accelerator.end_training()
 
+
+# Create this function before the main training loop
+
+def save_tensor_visualizations(A, M, model_pred, model_input, target, masked_diff, timesteps, indices, 
+                              noise_scheduler, global_step, output_dir, logger, vae):
+    """
+    Save visualizations of various tensors during training.
+    
+    Args:
+        A: Wavelet attention map
+        M: Attention mask
+        model_pred: Model prediction tensor
+        target: Target tensor
+        masked_diff: Masked difference tensor
+        timesteps: Current timestep values
+        indices: Timestep indices
+        noise_scheduler: The noise scheduler for getting total timesteps
+        global_step: Current training step
+        output_dir: Base output directory
+        logger: Logger for recording information and errors
+    """
+    try:
+        import matplotlib.pyplot as plt
+        import numpy as np
+        import os
+        from torchvision.utils import save_image
+        from diffusers.image_processor import VaeImageProcessor
+
+        # Create visualization directory
+        vis_dir = os.path.join(output_dir, "visualizations", f"step_{global_step}")
+        os.makedirs(vis_dir, exist_ok=True)
+        
+        # Get sample index (first in batch)
+        idx = 0
+        
+        # Save timestep information - important for understanding masks
+        current_timestep = timesteps[idx].item()
+        timestep_index = indices[idx].item()
+        
+        # Save attention map A - convert to float32 first and remove first dimension if needed
+        plt.figure(figsize=(10, 8))
+        attn_data = A[idx].detach().cpu().float().numpy()
+        # Handle case where attention map has shape (1, H, W) instead of (H, W)
+        if len(attn_data.shape) == 3 and attn_data.shape[0] == 1:
+            attn_data = attn_data[0]  # Take first channel to get (H, W)
+        plt.imshow(attn_data, cmap='viridis')
+        plt.colorbar(label='Attention Value')
+        plt.title(f'Wavelet Attention Map (A) at t={current_timestep}')
+        plt.savefig(os.path.join(vis_dir, 'attention_map_A.png'))
+        plt.close()
+
+        # Save mask M - convert to float32 first and remove first dimension if needed
+        plt.figure(figsize=(10, 8))
+        mask_data = M[idx].detach().cpu().float().numpy()
+        # Handle case where mask has shape (1, H, W) instead of (H, W)
+        if len(mask_data.shape) == 3 and mask_data.shape[0] == 1:
+            mask_data = mask_data[0]  # Take first channel to get (H, W)
+        plt.imshow(mask_data, cmap='Blues')
+        plt.colorbar(label='Mask Value')
+        plt.title(f'Attention Mask (M) at t={current_timestep}')
+        plt.savefig(os.path.join(vis_dir, 'mask_M.png'))
+        plt.close()
+        
+        #todo visaualzi masked diff
+
+        # Add VAE decoding to get actual RGB images
+        try:
+            with torch.no_grad():
+                # The issue is the type mismatch, so we need to match the types
+                # Make sure vae_input has the same dtype as the VAE's internal parameters (bfloat16)
+                weight_dtype = next(vae.parameters()).dtype  # Get the actual dtype of the VAE
+                
+                # Scale model_pred for input to VAE and ensure correct dtype
+                vae_input = (model_pred / vae.config.scaling_factor + vae.config.shift_factor).to(dtype=weight_dtype)
+                image_processor = VaeImageProcessor(vae_scale_factor=vae.config.scaling_factor)
+ 
+                # Decode model prediction to RGB
+                # decoded_pred = vae.decode(vae_input[idx:idx+1]).sample
+                decoded_pred = vae.decode(vae_input[idx:idx+1], return_dict=False)[0]
+                decoded_pred = image_processor.postprocess(decoded_pred)
+
+                # Scale target for input to VAE and ensure correct dtype
+                model_input_slice = model_input[idx:idx+1].to(dtype=weight_dtype)
+                target_slice = target[idx:idx+1].to(dtype=weight_dtype)
+                target_vae_input = target_slice / vae.config.scaling_factor + vae.config.shift_factor + model_input_slice
+                
+                # Decode target to RGB
+                # decoded_target = vae.decode(target_vae_input).sample
+                decoded_target = vae.decode(target_vae_input, return_dict=False)[0]
+                decoded_target = image_processor.postprocess(decoded_target)
+                # Convert back to float32 for saving images
+                decoded_pred = decoded_pred.float()
+                decoded_target = decoded_target.float()
+                
+                # Save decoded images
+                save_image(
+                    torch.clamp((decoded_pred + 1.0) / 2.0, min=0.0, max=1.0),
+                    os.path.join(vis_dir, 'decoded_pred.png')
+                )
+                
+                save_image(
+                    torch.clamp((decoded_target + 1.0) / 2.0, min=0.0, max=1.0),
+                    os.path.join(vis_dir, 'decoded_target.png')
+                )
+                
+                # Create a side-by-side comparison of the VAE decoded images
+                plt.figure(figsize=(16, 8))
+                
+                # Convert from torch tensor to numpy for matplotlib
+                decoded_pred_np = decoded_pred[0].permute(1, 2, 0).cpu().float().numpy()
+                decoded_target_np = decoded_target[0].permute(1, 2, 0).cpu().float().numpy()
+                
+                # Normalize to [0,1] for plotting
+                decoded_pred_np = (decoded_pred_np + 1.0) / 2.0
+                decoded_target_np = (decoded_target_np + 1.0) / 2.0
+                
+                plt.subplot(1, 2, 1)
+                plt.imshow(np.clip(decoded_pred_np, 0, 1))
+                plt.title(f'Decoded Prediction (t={current_timestep})')
+                plt.axis('on')
+                
+                plt.subplot(1, 2, 2)
+                plt.imshow(np.clip(decoded_target_np, 0, 1))
+                plt.title(f'Decoded Target (t={current_timestep})')
+                plt.axis('on')
+                
+                plt.tight_layout()
+                plt.savefig(os.path.join(vis_dir, 'decoded_comparison.png'))
+                plt.close()
+                
+                logger.info("Successfully decoded latents to RGB images")
+        except Exception as e:
+            logger.error(f"Error during VAE decoding: {e}")
+            import traceback
+            logger.error(traceback.format_exc())  # Print full traceback for debugging
+        
+        
+        logger.info(f"Saved visualizations to {vis_dir}")
+        return True
+    except Exception as e:
+        logger.error(f"Error saving visualizations: {e}")
+        import traceback
+        logger.error(traceback.format_exc())  # Print full traceback for debugging
+        return False
 
 if __name__ == "__main__":
     args = parse_args()
