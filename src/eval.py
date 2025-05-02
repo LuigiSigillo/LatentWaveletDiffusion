@@ -13,6 +13,14 @@ from tqdm import tqdm
 import argparse
 import multiprocessing
 
+# Set HF_HOME and TRANSFORMERS_CACHE environment variables
+def set_hf_cache_dir(cache_dir):
+    if cache_dir:
+        os.environ["HF_HOME"] = cache_dir
+        #also the torch cache when downloading the model
+        os.environ["TORCH_HOME"] = cache_dir
+        print(f"Set Huggingface cache to: {cache_dir}")
+
 def evaluate_image_quality(metric_name, dist_path, ref_path=None, dataset_name=None, dataset_res=None, dataset_split=None):
     """
     Evaluate image quality using specified metric.
@@ -62,13 +70,14 @@ def evaluate_image_quality(metric_name, dist_path, ref_path=None, dataset_name=N
             # Process all images in directory
             total_score = 0
             count = 0
-            for filename in os.listdir(dist_path):
-                if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff')):
-                    img_path = os.path.join(dist_path, filename)
-                    img_score = iqa_metric(img_path)
-                    print(f"{metric_name} score for {img_path}: {img_score:.4f}")
-                    total_score += img_score
-                    count += 1
+            for root, _, files in os.walk(dist_path):
+                for filename in tqdm(files):
+                    if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff')):
+                        img_path = os.path.join(root, filename)
+                        img_score = iqa_metric(img_path)
+                        # print(f"{metric_name} score for {img_path}: {img_score:.4f}")
+                        total_score += img_score
+                        count += 1
             
             if count == 0:
                 raise ValueError(f"No valid images found in directory {dist_path}")
@@ -86,10 +95,8 @@ def evaluate_image_quality(metric_name, dist_path, ref_path=None, dataset_name=N
             score = iqa_metric(dist_path, ref_path)
             print(f"{metric_name} score between {dist_path} and {ref_path}: {score:.4f}")
         else:
-            raise ValueError("For non-FID metrics, file paths should be provided")
-    
+            score = calculate_lpips(dist_path, ref_path)
     return score
-
 
 
 def generate_images(root_path_proj, checkpoint_path,device_str, height=2048, width=2048,seed=888, cache_dir=None):
@@ -256,10 +263,55 @@ def parse_arguments():
     
     return parser.parse_args()
 
+def calculate_lpips(dist_path, ref_path):
+    from torchmetrics.functional.image.lpips import learned_perceptual_image_patch_similarity
+    from PIL import Image
+    from torchvision import transforms
+
+    # Get all image files from both directories
+    dist_images = []
+    ref_images = []
+    
+    # Collect distorted images
+    for root, _, files in os.walk(dist_path):
+        for filename in files:
+            if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff')):
+                dist_images.append(os.path.join(root, filename))
+    
+    # Collect reference images
+    for root, _, files in os.walk(ref_path):
+        for filename in files:
+            if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff')):
+                ref_images.append(os.path.join(root, filename))
+
+    class ImageDataset(torch.utils.data.Dataset):
+        def __init__(self, dist_images, ref_images):
+            self.dist_images = dist_images
+            self.ref_images = ref_images
+            self.transform = transforms.Compose([
+                transforms.Resize((512, 512)),
+                transforms.ToTensor(),
+            ])
+        def __len__(self):
+            return len(self.dist_images)
+        def __getitem__(self, idx):
+            dist_image = self.transform(Image.open(self.dist_images[idx]))
+            ref_image = self.transform(Image.open(self.ref_images[idx]))
+            #normalize between -1 and 1
+            return dist_image, ref_image
+    
+    dataset = ImageDataset(dist_images, ref_images)
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=50, shuffle=False)
+    for (img1,img2) in tqdm(dataloader):
+        score +=learned_perceptual_image_patch_similarity(img1, img2, net_type='squeeze', normalize=True)
+
+    return score/len(dataloader)
+
+
 if __name__ == "__main__":
     multiprocessing.set_start_method("spawn")
     args = parse_arguments()
-
+    set_hf_cache_dir(args.cache_dir)
     # List available metrics if requested
     if args.list_metrics:
         print("Available metrics:")
@@ -310,7 +362,7 @@ if __name__ == "__main__":
     if args.evaluate:
         if not args.metrics:
             print("Error: No metrics specified. Using default metrics: fid, lpips, maniqa, qualiclip")
-            args.metrics = ['fid', 'lpips', 'maniqa', 'qualiclip']
+            args.metrics = ['lpips', 'maniqa', 'qualiclip','fid']
         
         # Determine paths based on user choice
         dist_path = args.dist_path if args.use_custom_paths else generated_path
@@ -323,7 +375,7 @@ if __name__ == "__main__":
         
         # Store results for all metrics
         results = {}
-        
+
         # Run evaluation for each metric
         for metric in args.metrics:
             print(f"Evaluating with metric: {metric}")
@@ -349,11 +401,18 @@ if __name__ == "__main__":
             except Exception as e:
                 print(f"Error evaluating with {metric}: {str(e)}")
         
+        hps2 = hpsv2.evaluate(dist_path) 
+        results["hps2"] = hps2
         # Print summary of all results
         if results:
             print("\n=== Evaluation Summary ===")
             for metric, score in results.items():
-                print(f"{metric}: {score:.4f}")
+                print(f"{metric}: {score}")
+        #write on a file txt with the name of the checkpoint that genreate those mtrics
+        with open(os.path.join(root_path_proj,"src",f"output/{name_exp}", "evaluation_results.txt"), "w") as f:
+            for metric, score in results.items():
+                f.write(f"{metric}: {score}\n")
+            print(f"Evaluation results saved to: {os.path.join(root_path_proj,'src',f'output/{name_exp}', 'evaluation_results.txt')}")
     
     # If neither generation nor evaluation was requested
     if not args.generate and not args.evaluate and not args.list_metrics:
