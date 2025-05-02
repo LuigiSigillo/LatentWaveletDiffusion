@@ -301,7 +301,8 @@ def calculate_lpips(dist_path, ref_path):
             return dist_image, ref_image
     
     dataset = ImageDataset(dist_images, ref_images)
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=50, shuffle=False)
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=10, shuffle=False)
+    score = 0
     for (img1,img2) in tqdm(dataloader):
         score +=learned_perceptual_image_patch_similarity(img1, img2, net_type='squeeze', normalize=True)
 
@@ -396,7 +397,7 @@ if __name__ == "__main__":
                     dataset_split=args.dataset_split
                 )
                 results[metric] = score
-                print(f"Final {metric} score: {score:.4f}")
+                print(f"Final {metric} score: {score}")
                 
             except Exception as e:
                 print(f"Error evaluating with {metric}: {str(e)}")
