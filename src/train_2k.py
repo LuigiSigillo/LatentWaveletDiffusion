@@ -887,7 +887,7 @@ def main(args):
             optimizer.step()
             lr_scheduler.step()
             optimizer.zero_grad()
-            if global_step % 1 == 0 and accelerator.is_main_process:
+            if global_step % 500 == 0 and accelerator.is_main_process:
                 # Call the visualization function
                 visualization_success = save_tensor_visualizations(
                     A=A, 

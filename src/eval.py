@@ -19,7 +19,7 @@ def set_hf_cache_dir(cache_dir):
         os.environ["HF_HOME"] = cache_dir
         #also the torch cache when downloading the model
         os.environ["TORCH_HOME"] = cache_dir
-        print(f"Set Huggingface cache to: {cache_dir}")
+        print(f"Set Huggingface and torch cache to: {cache_dir}")
 
 def evaluate_image_quality(metric_name, dist_path, ref_path=None, dataset_name=None, dataset_res=None, dataset_split=None):
     """
@@ -83,7 +83,7 @@ def evaluate_image_quality(metric_name, dist_path, ref_path=None, dataset_name=N
                 raise ValueError(f"No valid images found in directory {dist_path}")
             
             score = total_score / count
-            print(f"Average {metric_name} score for all images in {dist_path}: {score:.4f}")
+            print(f"Average {metric_name} score for all images in {dist_path}: {score}")
         else:
             raise ValueError(f"Invalid path for {metric_name}: {dist_path}")
     else:
@@ -283,30 +283,92 @@ def calculate_lpips(dist_path, ref_path):
         for filename in files:
             if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff')):
                 ref_images.append(os.path.join(root, filename))
+    
+    # Sort images to ensure consistent pairing
+    dist_images.sort()
+    ref_images.sort()
+    
+    # Make sure we have equal number of images
+    min_len = min(len(dist_images), len(ref_images))
+    dist_images = dist_images[:min_len]
+    ref_images = ref_images[:min_len]
+    
+    print(f"Processing {min_len} image pairs for LPIPS calculation")
 
     class ImageDataset(torch.utils.data.Dataset):
         def __init__(self, dist_images, ref_images):
             self.dist_images = dist_images
             self.ref_images = ref_images
             self.transform = transforms.Compose([
-                transforms.Resize((512, 512)),
+                transforms.Resize((1024, 1024)),
                 transforms.ToTensor(),
             ])
+        
         def __len__(self):
             return len(self.dist_images)
+        
         def __getitem__(self, idx):
-            dist_image = self.transform(Image.open(self.dist_images[idx]))
-            ref_image = self.transform(Image.open(self.ref_images[idx]))
-            #normalize between -1 and 1
-            return dist_image, ref_image
+            # Open images
+            dist_img = Image.open(self.dist_images[idx])
+            ref_img = Image.open(self.ref_images[idx])
+            
+            # Convert RGBA to RGB if needed
+            if dist_img.mode == 'RGBA':
+                dist_img = dist_img.convert('RGB')
+            if ref_img.mode == 'RGBA':
+                ref_img = ref_img.convert('RGB')
+            
+            # Transform images
+            dist_tensor = self.transform(dist_img)
+            ref_tensor = self.transform(ref_img)
+            
+            # Ensure both have 3 channels
+            if dist_tensor.shape[0] != 3 or ref_tensor.shape[0] != 3:
+                print(f"Warning: Unusual channel count in image pair {idx}: {dist_tensor.shape}, {ref_tensor.shape}")
+                # Force 3 channels if needed (take first 3 or add zeros)
+                if dist_tensor.shape[0] > 3:
+                    dist_tensor = dist_tensor[:3, :, :]
+                elif dist_tensor.shape[0] < 3:
+                    zeros = torch.zeros(3-dist_tensor.shape[0], 512, 512)
+                    dist_tensor = torch.cat([dist_tensor, zeros], dim=0)
+                
+                if ref_tensor.shape[0] > 3:
+                    ref_tensor = ref_tensor[:3, :, :]
+                elif ref_tensor.shape[0] < 3:
+                    zeros = torch.zeros(3-ref_tensor.shape[0], 512, 512)
+                    ref_tensor = torch.cat([ref_tensor, zeros], dim=0)
+            
+            return dist_tensor, ref_tensor
     
     dataset = ImageDataset(dist_images, ref_images)
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=10, shuffle=False)
-    score = 0
-    for (img1,img2) in tqdm(dataloader):
-        score +=learned_perceptual_image_patch_similarity(img1, img2, net_type='squeeze', normalize=True)
-
-    return score/len(dataloader)
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=2, shuffle=False)
+    
+    total_score = 0
+    batch_count = 0
+    
+    try:
+        for (img1, img2) in tqdm(dataloader):
+            # Validate shapes before computing metric
+            if img1.shape != img2.shape:
+                print(f"Warning: Shape mismatch detected: {img1.shape} vs {img2.shape}")
+                continue
+                
+            batch_score = learned_perceptual_image_patch_similarity(img1, img2, net_type='squeeze', normalize=True)
+            total_score += batch_score
+            batch_count += 1
+    except Exception as e:
+        print(f"Error during LPIPS calculation: {e}")
+        # Print the shapes of tensors for debugging
+        for i, (img1, img2) in enumerate(dataset):
+            print(f"Pair {i}: {img1.shape}, {img2.shape}")
+            if i > 5:  # Just sample a few for debugging
+                break
+        raise
+    
+    if batch_count == 0:
+        raise ValueError("No valid image pairs were processed for LPIPS calculation")
+        
+    return total_score / batch_count
 
 
 if __name__ == "__main__":
@@ -368,7 +430,10 @@ if __name__ == "__main__":
         # Determine paths based on user choice
         dist_path = args.dist_path if args.use_custom_paths else generated_path
         ref_path = args.ref_path
-        
+        print(f"Distorted images path: {dist_path}")
+        print(f"Reference images path: {ref_path}")
+        print(f"Using custom paths: {args.use_custom_paths}")
+        print(f"Generated images path: {generated_path}")
         # If no paths were specified or derived
         if not dist_path:
             print("Error: No path for distorted images. Either generate images, specify --dist_path, or use a valid checkpoint.")
@@ -386,7 +451,6 @@ if __name__ == "__main__":
                 if metric.lower() not in ['maniqa', 'qualiclip', 'niqe', 'brisque', 'fid'] and ref_path is None:
                     print(f"Skipping {metric} - reference path required but not provided")
                     continue
-                
                 # Run evaluation
                 score = evaluate_image_quality(
                     metric,
@@ -396,8 +460,10 @@ if __name__ == "__main__":
                     dataset_res=args.dataset_res,
                     dataset_split=args.dataset_split
                 )
+
                 results[metric] = score
-                print(f"Final {metric} score: {score}")
+
+                print(f"Final {metric} score ", score)
                 
             except Exception as e:
                 print(f"Error evaluating with {metric}: {str(e)}")
@@ -408,11 +474,11 @@ if __name__ == "__main__":
         if results:
             print("\n=== Evaluation Summary ===")
             for metric, score in results.items():
-                print(f"{metric}: {score}")
+                print(f"{metric}: ", score)
         #write on a file txt with the name of the checkpoint that genreate those mtrics
         with open(os.path.join(root_path_proj,"src",f"output/{name_exp}", "evaluation_results.txt"), "w") as f:
             for metric, score in results.items():
-                f.write(f"{metric}: {score}\n")
+                f.write(f"{metric}: " + score +"\n")
             print(f"Evaluation results saved to: {os.path.join(root_path_proj,'src',f'output/{name_exp}', 'evaluation_results.txt')}")
     
     # If neither generation nor evaluation was requested
