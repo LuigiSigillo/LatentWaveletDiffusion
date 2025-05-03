@@ -6,17 +6,17 @@
 #SBATCH --ntasks-per-node=1    
 #SBATCH --gres=gpu:4          
 #SBATCH --cpus-per-task=8      
-#SBATCH --job-name=traning_2k
+#SBATCH --job-name=caching_prompt
 
 echo "NODELIST="${SLURM_NODELIST}
 
 cd /leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav
-export WANDB_MODE=offline
-module load anaconda3
-source activate URAE
+
+source /leonardo_scratch/fast/IscrC_UniMod/luigi/miniconda3/etc/profile.d/conda.sh
+conda activate URAE
 
 export NUM_WORKERS=4
-export DATA_DIR="/leonardo_scratch/large/userexternal/lsigillo/laion_high_res_images"
+export DATA_DIR="/leonardo_scratch/large/userexternal/lsigillo/laion_high_res_images_4K"
 export MODEL_NAME="black-forest-labs/FLUX.1-dev"
 export CUDA_VISIBLE_DEVICES=0,1,2,3
 torchrun --nproc_per_node=$NUM_WORKERS src/cache_prompt_embeds.py \

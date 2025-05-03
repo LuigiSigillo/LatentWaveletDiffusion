@@ -366,8 +366,13 @@ def main():
     parser.add_argument("--limit", type=int, default=20000, help="Maximum number of files to download (default: 20000)")
     parser.add_argument("--min_width", type=int, default=1920, help="Minimum image width for filtering (default: 1920)")
     parser.add_argument("--min_height", type=int, default=1080, help="Minimum image height for filtering (default: 1080)")
-    
+    parser.add_argument("--clean", action='store_true', help="Clean the output directory before starting")
     args = parser.parse_args()
+    #cleaning if restarting from checkpoint
+    if args.clean:
+        remove_corrupted_images(args.output_dir)
+        cleanup_folder(args.output_dir)
+        raise Exception("Cleaning done, please restart the script without --clean")
     
     # Find parquet files in the specified folder
     parquet_files = find_parquet_files(args.parquet_folder)
@@ -379,6 +384,7 @@ def main():
     if args.filtered_output:
         save_filtered_data(filtered_data, args.filtered_output)
     
+
     # Download images and create JSON files
     results = download_images_with_metadata(filtered_data, args.output_dir, args.max_workers, args.limit)
     

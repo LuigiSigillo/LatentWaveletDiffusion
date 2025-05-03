@@ -6,7 +6,7 @@
 #SBATCH --ntasks-per-node=1    
 #SBATCH --gres=gpu:4          
 #SBATCH --cpus-per-task=8      
-#SBATCH --job-name=traning_2k
+#SBATCH --job-name=cache_latent
 
 echo "NODELIST="${SLURM_NODELIST}
 
@@ -21,10 +21,10 @@ export https_proxy=http://login07:3168
 
 
 export NUM_WORKERS=4
-export DATA_DIR="/leonardo_scratch/large/userexternal/lsigillo/laion_high_res_images"
-export OUTPUT_DIR="/leonardo_scratch/large/userexternal/lsigillo/se_latents"
+export DATA_DIR="/leonardo_scratch/large/userexternal/lsigillo/laion_high_res_images_4K"
+export OUTPUT_DIR="/leonardo_scratch/large/userexternal/lsigillo/se_latents_4K"
 # export MODEL_NAME="black-forest-labs/FLUX.1-dev"
-export MODEL_NAME="/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/vae_SE_finetuning/ckpt/VAE_SE/checkpoint_60k"
+export MODEL_NAME="/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/vae_SE_finetuning/ckpt/VAE_SE/checkpoint-60000"
 # export CUDA_VISIBLE_DEVICES=0,1,2,3
 torchrun --nproc_per_node=$NUM_WORKERS src/cache_latent_codes.py \
     --data_root=$DATA_DIR \
@@ -32,5 +32,5 @@ torchrun --nproc_per_node=$NUM_WORKERS src/cache_latent_codes.py \
     --pretrained_model_name_or_path=$MODEL_NAME \
     --mixed_precision='bf16' \
     --output_dir=$OUTPUT_DIR \
-    --resolution=2560 \
+    --resolution=3840 \
     --cache_dir=$SCRATCH \
