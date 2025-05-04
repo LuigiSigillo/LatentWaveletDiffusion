@@ -20,15 +20,15 @@ export https_proxy=http://login07:3168
 
 export MODEL_NAME="black-forest-labs/FLUX.1-dev"
 export VAE_MODEL_NAME="/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/vae_SE_finetuning/ckpt/VAE_SE/checkpoint-60000"
-export DATA_DIR="/leonardo_scratch/large/userexternal/lsigillo/Aesthetic-4K/train"
-export LATENT_CODE_DIR="/leonardo_scratch/large/userexternal/lsigillo/Aesthetic_se_latents_2048"
+export DATA_DIR="/leonardo_scratch/large/userexternal/lsigillo/laion_high_res_images_2K"
+export LATENT_CODE_DIR="/leonardo_scratch/large/userexternal/lsigillo/LAION_se_latents_2048"
 
-export OUTPUT_DIR="/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ckpt/URAE_VAE_SE_WAV_ATT_AESTHETIC_2048"
+export OUTPUT_DIR="/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ckpt/URAE_VAE_SE_WAV_ATT_LAION_2048"
 
 
 export PRECISION="bf16"
 # export CUDA_VISIBLE_DEVICES=0,1,2,3
-export MASTER_PORT=29502
+export MASTER_PORT=29403
 MASTER_PORT=$MASTER_PORT accelerate launch --main_process_port $MASTER_PORT --num_processes 4 --multi_gpu --mixed_precision $PRECISION src/train_2k.py \
   --pretrained_model_name_or_path=$MODEL_NAME  \
   --dataset_root=$DATA_DIR \

@@ -89,6 +89,7 @@ def parse_args():
                         help="Path to pretrained model or model identifier from huggingface.co/models")
     parser.add_argument("--data_dir", type=str, required=True, help="Directory containing the training data")
     parser.add_argument("--output_dir", type=str, default="vae-finetuned", help="Directory to save model and results")
+    parser.add_argument("--cache_dir", type=str, default=None, help="Directory to save model and results")
     parser.add_argument("--image_size", type=int, default=256, help="Image size for training (square)")
     parser.add_argument("--batch_size", type=int, default=32, help="Batch size for training")
     parser.add_argument("--learning_rate", type=float, default=1e-5, help="Learning rate")
@@ -154,6 +155,7 @@ def main():
         args.pretrained_model_name_or_path,
         subfolder=args.subfolder,
         revision=args.revision,
+        cache_dir=args.cache_dir,
     )
     
     # Create a copy for EMA
@@ -161,6 +163,7 @@ def main():
         args.pretrained_model_name_or_path,
         subfolder=args.subfolder,
         revision=args.revision,
+        cache_dir=args.cache_dir,
     )
     # Freeze EMA model parameters for now (we'll update them in the training loop)
     for param in ema_vae.parameters():

@@ -205,7 +205,9 @@ def calculate_average_pickscore_from_prompts(all_prompts, output_dir):
     return results
 
 
-def generate_images_for_gpu(prompt_files, prompt_folder, output_folder, checkpoint_path, device_str, cache_dir, height, width, gen_seed):
+def DPG_generate_images_for_gpu(prompt_files, prompt_folder, output_folder, 
+                            checkpoint_path, device_str, cache_dir, height, width, 
+                            gen_seed,img_per_prompt=4, save_grid=True):
     """
     Generate images for a subset of prompts on a specific GPU.
 
@@ -244,7 +246,7 @@ def generate_images_for_gpu(prompt_files, prompt_folder, output_folder, checkpoi
             if os.path.join(output_folder, os.path.splitext(prompt_file)[0] + ".jpg") in os.listdir(output_folder):
                 print(f"Image for prompt '{prompt_file}' already exists, skipping...")
                 continue
-            # Generate 4 images for the prompt
+            # Generate n images for the prompt
             images = pipe(
                 prompt,
                 height=height,
@@ -255,28 +257,38 @@ def generate_images_for_gpu(prompt_files, prompt_folder, output_folder, checkpoi
                 generator=gen_seed,
                 ntk_factor=10,
                 proportional_attention=True,
-                num_images_per_prompt=4,
+                num_images_per_prompt=img_per_prompt,
             ).images
+            if save_grid:
+                # Arrange the images in a 2x2 grid
+                grid_width, grid_height = images[0].size
+                grid = Image.new("RGB", (grid_width * 2, grid_height * 2))
 
-            # Arrange the images in a 2x2 grid
-            grid_width, grid_height = images[0].size
-            grid = Image.new("RGB", (grid_width * 2, grid_height * 2))
+                grid.paste(images[0], (0, 0))
+                grid.paste(images[1], (grid_width, 0))
+                grid.paste(images[2], (0, grid_height))
+                grid.paste(images[3], (grid_width, grid_height))
 
-            grid.paste(images[0], (0, 0))
-            grid.paste(images[1], (grid_width, 0))
-            grid.paste(images[2], (0, grid_height))
-            grid.paste(images[3], (grid_width, grid_height))
-
-            # Save the grid image with the same name as the prompt file (but with .jpg extension)
-            output_path = os.path.join(output_folder, os.path.splitext(prompt_file)[0] + ".jpg")
-            grid.save(output_path)
-            # print(f"Generated and saved image for prompt: {prompt_file} on {device_str}")
-            # Clear GPU memory
-            del images, grid
+                # Save the grid image with the same name as the prompt file (but with .jpg extension)
+                output_path = os.path.join(output_folder, os.path.splitext(prompt_file)[0] + ".jpg")
+                grid.save(output_path)
+                # print(f"Generated and saved image for prompt: {prompt_file} on {device_str}")
+                # Clear GPU memory
+                del images, grid
+            else:
+                # Save each image with the same name as the prompt file (but with .jpg extension)
+                for i, image in enumerate(images):
+                    output_path = os.path.join(output_folder, os.path.splitext(prompt_file)[0] + f"_{i}.jpg")
+                    image.save(output_path)
+                    # print(f"Generated and saved image for prompt: {prompt_file} on {device_str}")
+                    # Clear GPU memory
+                    del image
             torch.cuda.empty_cache()
             gc.collect()
 
-def DPG_generate_images_from_prompts_parallel(prompt_folder, output_folder, checkpoint_path, cache_dir, height=2048, width=2048, gen_seed=None):
+def generate_images_from_prompts_parallel(prompt_folder, output_folder, checkpoint_path, 
+                                            cache_dir, height=2048, width=2048, gen_seed=None,
+                                            dpg=True):
     """
     Generate images based on prompts in text files using multiple GPUs.
 
@@ -289,7 +301,14 @@ def DPG_generate_images_from_prompts_parallel(prompt_folder, output_folder, chec
         width (int): Width of the generated images.
         gen_seed (torch.Generator): Random seed generator.
     """
-    prompt_files = [f for f in os.listdir(prompt_folder) if f.endswith(".txt")]
+    import json
+    if dpg:
+        prompt_files = [f for f in os.listdir(prompt_folder) if f.endswith(".txt")]
+    else:
+        # Load the JSON file
+        with open(prompt_folder, 'r') as f:
+            prompt_files = json.load(f)
+    
     num_gpus = torch.cuda.device_count()
     if num_gpus < 1:
         raise RuntimeError("No GPUs available for parallel processing.")
@@ -301,10 +320,14 @@ def DPG_generate_images_from_prompts_parallel(prompt_folder, output_folder, chec
     processes = []
     for i, chunk in enumerate(chunks):
         device_str = f"cuda:{i}"
-        process = Process(
-            target=generate_images_for_gpu,
-            args=(chunk, prompt_folder, output_folder, checkpoint_path, device_str, cache_dir, height, width, gen_seed)
-        )
+        if dpg:
+            process = Process(
+                target=DPG_generate_images_for_gpu,
+                args=(chunk, prompt_folder, output_folder, checkpoint_path, device_str, cache_dir, height, width, gen_seed)
+            )
+        else:
+            process = Process(target=HPDv2_generate_images,
+                              args=(chunk, output_folder, checkpoint_path, device_str, cache_dir, height, width, gen_seed))
         processes.append(process)
         process.start()
 
@@ -313,12 +336,94 @@ def DPG_generate_images_from_prompts_parallel(prompt_folder, output_folder, chec
         process.join()
 
 
+def HPDv2_generate_images(data, output_dir, checkpoint_path, device_str,
+                           cache_dir, height, width, gen_seed,):
+    """
+    Generate images based on prompts from a JSON file and save them with 
+    the specified filenames to the output directory.
+    
+    Args:
+        json_file (str): Path to the JSON file containing prompts and image paths
+        output_dir (str): Directory where to save the generated images
+        model_id (str): Hugging Face model ID for the image generation model
+    """
+    # Create output directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
+    import gc
+
+    # Load the model on the specified GPU
+    bfl_repo = "black-forest-labs/FLUX.1-dev"
+    device = torch.device(device_str)
+    dtype = torch.bfloat16
+    transformer = FluxTransformer2DModel.from_pretrained(bfl_repo, subfolder="transformer", torch_dtype=dtype, cache_dir=cache_dir)
+    pipe = FluxPipeline.from_pretrained(bfl_repo, transformer=transformer, torch_dtype=dtype, cache_dir=cache_dir)
+    pipe.scheduler.config.use_dynamic_shifting = False
+    pipe.scheduler.config.time_shift = 10
+    pipe = pipe.to(device)
+
+    # Load LoRA weights
+    pipe.load_lora_weights(checkpoint_path)
+    pipe = pipe.to(device)
+
+    
+    # Process each entry in the JSON file
+    for idx, entry in tqdm(enumerate(data)):
+        if "prompt" not in entry or "image_path" not in entry:
+            print(f"Skipping entry {idx}: Missing prompt or image_path")
+            continue
+            
+        prompt = entry["prompt"]
+        image_paths = entry["image_path"]
+        
+        # print(f"Processing entry {idx+1}/{len(data)}: {prompt[:50]}...")
+        
+        # Generate the required number of images
+        num_images = len(image_paths)
+        images = pipe(
+                prompt,
+                height=height,
+                width=width,
+                guidance_scale=3.5,
+                num_inference_steps=28,
+                max_sequence_length=512,
+                generator=gen_seed,
+                ntk_factor=10,
+                proportional_attention=True,
+                num_images_per_prompt=num_images,
+            ).images
+        
+        # Save each image with its specified filename
+        for i, (image, filename) in enumerate(zip(images, image_paths)):
+            save_path = os.path.join(output_dir, filename)
+            print(f"Saving image {i+1}/{num_images}: {save_path}")
+            image.save(save_path)
+        
+        del images
+        torch.cuda.empty_cache()
+        gc.collect()
+        # print(f"Finished entry {idx+1}/{len(data)}")
+
+
 if __name__ == "__main__":
     set_hf_cache_dir("/leonardo_scratch/large/userexternal/lsigillo/")
-    generated_folder = "/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/output/URAE_VAE_SE_WAV_ATT_LAION"
-    reference_folder = "/leonardo_scratch/large/userexternal/lsigillo/HPDv2/test"
-    seed= 42  # Set a seed for reproducibility
+    
+    import argparse
+    parser = argparse.ArgumentParser(description="Generate images from JSON prompts")
+    parser.add_argument("--json_file", type=str, default="/leonardo_scratch/large/userexternal/lsigillo/HPDv2/test.json", help="Path to the JSON file")
+    parser.add_argument("--output_dir", type=str, required=True, help="Directory to save the generated images")
+    parser.add_argument("--model_id", type=str, default="", 
+                        help="Model ID from Hugging Face")
+    seed = 42
     gen_seed = torch.manual_seed(seed=seed)
+    args = parser.parse_args()
+    generate_images_from_prompts_parallel(args.json_file, args.output_dir, args.model_id, 
+                                        cache_dir="/leonardo_scratch/large/userexternal/lsigillo/",
+                                           height=2048, width=2048, gen_seed=gen_seed, dpg=False)   
+
+    # generated_folder = "/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/output/URAE_VAE_SE_WAV_ATT_LAION"
+    # reference_folder = "/leonardo_scratch/large/userexternal/lsigillo/HPDv2/test"
+    # seed= 42  # Set a seed for reproducibility
+    
     # # Compute both FID and LPIPS
     # calculate_fid_and_lpips(generated_folder, reference_folder, compute_fid=False, compute_lpips=True)
 
@@ -336,12 +441,12 @@ if __name__ == "__main__":
     # # Print the average
     # print(f"Overall average score: {average_score:.4f}")
 
-    prompt_folder = "/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ELLA/dpg_bench/prompts"
-    output_folder = "/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/output/URAE_VAE_SE_WAV_ATT_LAION/DPG"
-    checkpoint_path = "/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ckpt/URAE_VAE_SE_WAV_ATT_LAION/checkpoint-2000"
-    cache_dir = "/leonardo_scratch/large/userexternal/lsigillo/"
-    seed = 42  # Set a seed for reproducibility
-    gen_seed = torch.manual_seed(seed)
-    DPG_generate_images_from_prompts_parallel(prompt_folder, output_folder, checkpoint_path, cache_dir, gen_seed=gen_seed)   
+    # prompt_folder = "/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ELLA/dpg_bench/prompts"
+    # output_folder = "/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/output/URAE_VAE_SE_WAV_ATT_LAION/DPG"
+    # checkpoint_path = "/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ckpt/URAE_VAE_SE_WAV_ATT_LAION/checkpoint-2000"
+    # cache_dir = "/leonardo_scratch/large/userexternal/lsigillo/"
+    # seed = 42  # Set a seed for reproducibility
+    # gen_seed = torch.manual_seed(seed)
+    # generate_images_from_prompts_parallel(prompt_folder, output_folder, checkpoint_path, cache_dir, gen_seed=gen_seed, dpg=True)   
     
-    os.system(f"bash /leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ELLA/dpg_bench/dist_eval.sh {output_folder} {2048}]")
+    # os.system(f"bash /leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ELLA/dpg_bench/dist_eval.sh {output_folder} {2048}]")

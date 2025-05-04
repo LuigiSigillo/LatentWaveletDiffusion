@@ -937,7 +937,12 @@ def main(args):
             optimizer.step()
             lr_scheduler.step()
             optimizer.zero_grad()
+            # Clear unused memory
+            torch.cuda.empty_cache()
 
+            # Explicitly delete intermediate variables
+            del M, masked_diff, model_pred, target, noisy_model_input
+        
         # Checks if the accelerator has performed an optimization step behind the scenes
         if accelerator.sync_gradients:
             progress_bar.update(1)
