@@ -20,10 +20,10 @@ export https_proxy=http://login07:3168
 
 export MODEL_NAME="black-forest-labs/FLUX.1-dev"
 export VAE_MODEL_NAME="/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/vae_SE_finetuning/ckpt/VAE_SE/checkpoint-60000"
-export DATA_DIR="/leonardo_scratch/large/userexternal/lsigillo/laion_high_res_images"
-export LATENT_CODE_DIR="$FAST/luigi/dataset/laion_2K/se_latents/se_latents"
+export DATA_DIR="/leonardo_scratch/large/userexternal/lsigillo/Aesthetic-4K/train"
+export LATENT_CODE_DIR="/leonardo_scratch/large/userexternal/lsigillo/Aesthetic_se_latents_2048"
 
-export OUTPUT_DIR="/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ckpt/URAE_VAE_SE_WAV_ATT_LAION"
+export OUTPUT_DIR="/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ckpt/URAE_VAE_SE_WAV_ATT_AESTHETIC_2048"
 
 
 export PRECISION="bf16"

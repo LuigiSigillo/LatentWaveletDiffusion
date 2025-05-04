@@ -16,7 +16,7 @@ source /leonardo_scratch/fast/IscrC_UniMod/luigi/miniconda3/etc/profile.d/conda.
 conda activate URAE
 
 export NUM_WORKERS=4
-export DATA_DIR="/leonardo_scratch/large/userexternal/lsigillo/laion_high_res_images_4K"
+export DATA_DIR="/leonardo_scratch/large/userexternal/lsigillo/Aesthetic-4K/train"
 export MODEL_NAME="black-forest-labs/FLUX.1-dev"
 export CUDA_VISIBLE_DEVICES=0,1,2,3
 torchrun --nproc_per_node=$NUM_WORKERS src/cache_prompt_embeds.py \
