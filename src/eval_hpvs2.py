@@ -376,29 +376,67 @@ def HPDv2_generate_images(data, output_dir, checkpoint_path, device_str,
         image_paths = entry["image_path"]
         
         # print(f"Processing entry {idx+1}/{len(data)}: {prompt[:50]}...")
+        with torch.no_grad():
+            # Generate the required number of images
+            num_images = len(image_paths)
+            
+            # Generate images in batches if there are more than 3 images
+            if num_images > 3:
+                # Process in batches of 3
+                batch_size = 3
+                
+                for batch_start in range(0, num_images, batch_size):
+                    batch_end = min(batch_start + batch_size, num_images)
+                    batch_count = batch_end - batch_start
+                    batch_paths = image_paths[batch_start:batch_end]
+                    
+                    print(f"Generating batch {batch_start//batch_size + 1}: images {batch_start+1}-{batch_end} of {num_images}")
+                    batch_images = pipe(
+                        prompt,
+                        height=height,
+                        width=width,
+                        guidance_scale=3.5,
+                        num_inference_steps=28,
+                        max_sequence_length=512,
+                        generator=gen_seed,
+                        ntk_factor=10,
+                        proportional_attention=True,
+                        num_images_per_prompt=batch_count,
+                    ).images
+                    
+                    # Save each image immediately with its specified filename
+                    for i, (image, filename) in enumerate(zip(batch_images, batch_paths)):
+                        save_path = os.path.join(output_dir, filename)
+                        print(f"Saving image {batch_start+i+1}/{num_images}: {save_path}")
+                        image.save(save_path)
+                    
+                    # Clean up after each batch
+                    del batch_images
+                    torch.cuda.empty_cache()
+                    gc.collect()
+            else:
+                # Process all at once if 3 or fewer images
+                images = pipe(
+                    prompt,
+                    height=height,
+                    width=width,
+                    guidance_scale=3.5,
+                    num_inference_steps=28,
+                    max_sequence_length=512,
+                    generator=gen_seed,
+                    ntk_factor=10,
+                    proportional_attention=True,
+                    num_images_per_prompt=num_images,
+                ).images
+                
+                # Save each image with its specified filename
+                for i, (image, filename) in enumerate(zip(images, image_paths)):
+                    save_path = os.path.join(output_dir, filename)
+                    print(f"Saving image {i+1}/{num_images}: {save_path}")
+                    image.save(save_path)
+                
+                del images
         
-        # Generate the required number of images
-        num_images = len(image_paths)
-        images = pipe(
-                prompt,
-                height=height,
-                width=width,
-                guidance_scale=3.5,
-                num_inference_steps=28,
-                max_sequence_length=512,
-                generator=gen_seed,
-                ntk_factor=10,
-                proportional_attention=True,
-                num_images_per_prompt=num_images,
-            ).images
-        
-        # Save each image with its specified filename
-        for i, (image, filename) in enumerate(zip(images, image_paths)):
-            save_path = os.path.join(output_dir, filename)
-            print(f"Saving image {i+1}/{num_images}: {save_path}")
-            image.save(save_path)
-        
-        del images
         torch.cuda.empty_cache()
         gc.collect()
         # print(f"Finished entry {idx+1}/{len(data)}")
