@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 from torchvision.datasets import ImageFolder
 from torchvision.utils import save_image
-from diffusers import AutoencoderKL
+from diffusers import AutoencoderKL, AutoencoderDC
 from diffusers.optimization import get_scheduler
 from accelerate import Accelerator
 import wandb
@@ -156,10 +156,22 @@ def main():
         subfolder=args.subfolder,
         revision=args.revision,
         cache_dir=args.cache_dir,
+    ) if not "Sana" in args.pretrained_model_name_or_path else \
+        AutoencoderDC.from_pretrained(
+        args.pretrained_model_name_or_path,
+        subfolder=args.subfolder,
+        revision=args.revision,
+        cache_dir=args.cache_dir,
     )
     
     # Create a copy for EMA
     ema_vae = AutoencoderKL.from_pretrained(
+        args.pretrained_model_name_or_path,
+        subfolder=args.subfolder,
+        revision=args.revision,
+        cache_dir=args.cache_dir,
+    ) if not "Sana" in args.pretrained_model_name_or_path else \
+        AutoencoderDC.from_pretrained(
         args.pretrained_model_name_or_path,
         subfolder=args.subfolder,
         revision=args.revision,
@@ -177,16 +189,27 @@ def main():
     # Count total parameters for percentage calculation
     for param in vae.parameters():
         total_params += param.numel()
-    
-    # Freeze only decoder's last layers
+    # Diagnostic run to identify layer names in AutoencoderDC
+    # if "Sana" in args.pretrained_model_name_or_path or isinstance(vae, AutoencoderDC):
+    #     logger.info("AutoencoderDC structure - listing decoder parameter names:")
+    #     for name, _ in vae.decoder.named_parameters():
+    #         logger.info(f"  {name}")
+    # Freeze only decoder's last layers - with modified patterns for AutoencoderDC
     for name, param in vae.decoder.named_parameters():
-        total_params += param.numel()
-        # Look for the last normalization layer and output convolution
+        # For AutoencoderDC, look for different naming patterns
+        # if "Sana" in args.pretrained_model_name_or_path or isinstance(vae, AutoencoderDC):
+        #     # Typical naming patterns in AutoencoderDC's decoder output layers
+        #     if "final_norm" in name or "final_conv" in name or "out_conv" in name or "out_norm" in name:
+        #         param.requires_grad = False
+        #         freeze_count += param.numel()
+        #         logger.info(f"Freezing AutoencoderDC decoder parameter: {name}")
+        # else:
+            # Original patterns for AutoencoderKL
         if "norm_out" in name or "conv_out" in name or "out.weight" in name or "out.bias" in name:
             param.requires_grad = False
             freeze_count += param.numel()
-            logger.info(f"Freezing decoder parameter: {name}")
-    
+            logger.info(f"Freezing AutoencoderKL decoder parameter: {name}")
+
     logger.info(f"Frozen {freeze_count} parameters out of {total_params} total parameters ({(freeze_count/total_params)*100:.2f}%)")
     
     # Additional freezing if specified
@@ -282,13 +305,28 @@ def main():
     if accelerator.is_main_process and args.with_tracking:
         experiment_config = vars(args)
         # Add model info to config
+        # Add model-specific configuration parameters
+        # Add model info to config
         experiment_config["model_parameters"] = {
             "latent_channels": args.latent_channels,
-            "scaling_factor": vae.config.scaling_factor,
-            "block_out_channels": vae.config.block_out_channels,
             "frozen_parameters": freeze_count,
             "frozen_percentage": (freeze_count/total_params)*100,
         }
+        if "Sana" in args.pretrained_model_name_or_path or isinstance(vae, AutoencoderDC):
+            # AutoencoderDC parameters
+            experiment_config["model_parameters"].update({
+                "scaling_factor": getattr(vae.config, "scaling_factor", 1.0),
+                "encoder_block_out_channels": getattr(vae.config, "encoder_block_out_channels", None),
+                "decoder_block_out_channels": getattr(vae.config, "decoder_block_out_channels", None),
+                "model_type": "AutoencoderDC"
+            })
+        else:
+            # AutoencoderKL parameters
+            experiment_config["model_parameters"].update({
+                "scaling_factor": getattr(vae.config, "scaling_factor", 1.0),
+                "block_out_channels": getattr(vae.config, "block_out_channels", None),
+                "model_type": "AutoencoderKL"
+            })
         experiment_config["trainable_parameters"] = trainable_params
         
         wandb.init(
@@ -364,7 +402,10 @@ def main():
             # Generate reconstructions with main model for fixed batch
             fixed_reconstructed = vae(fixed_eval_images).sample
             # Option 2: Using mean - deterministic encoding
-            fixed_latents = vae.encode(fixed_eval_images).latent_dist.mean
+            try:
+                fixed_latents = vae.encode(fixed_eval_images).latent_dist.mean
+            except: #sana
+                fixed_latents = vae.encode(fixed_eval_images).latent
             fixed_decoded = vae.decode(fixed_latents).sample
             fixed_ema_reconstructed = ema_vae(fixed_eval_images).sample
 
@@ -375,7 +416,10 @@ def main():
             fixed_eval_images_0_1 = (fixed_eval_images + 1) / 2
             fixed_lpips_loss = lpips_model(fixed_reconstr_0_1, fixed_eval_images_0_1).mean().item()
             
-            fixed_kl_loss = vae.encode(fixed_eval_images).latent_dist.kl().mean().item()
+            try:
+                fixed_kl_loss = vae.encode(fixed_eval_images).latent_dist.kl().mean().item()
+            except: #sana
+                fixed_kl_loss = torch.tensor(0.0).to(accelerator.device)
             #downscale_factor = random.choice([0.5, 0.25])  # 2x or 4x downsampling
             #x_down = F.interpolate(fixed_eval_images, scale_factor=downscale_factor, mode='bilinear', align_corners=False)
             #x_recon_down = F.interpolate(fixed_decoded, scale_factor=downscale_factor, mode='bilinear', align_corners=False)
@@ -405,7 +449,10 @@ def main():
 
             # Generate reconstructions with main model for dynamic batch
             dynamic_reconstructed = vae(dynamic_eval_images).sample
-            dynamic_latents = vae.encode(dynamic_eval_images).latent_dist.sample()
+            try:
+                dynamic_latents = vae.encode(dynamic_eval_images).latent_dist.sample()
+            except: #sana
+                dynamic_latents = vae.encode(dynamic_eval_images).latent
             dynamic_decoded = vae.decode(dynamic_latents).sample
             dynamic_ema_reconstructed = ema_vae(dynamic_eval_images).sample
 
@@ -415,8 +462,10 @@ def main():
             dynamic_reconstr_0_1 = (dynamic_reconstructed + 1) / 2
             dynamic_eval_images_0_1 = (dynamic_eval_images + 1) / 2
             dynamic_lpips_loss = lpips_model(dynamic_reconstr_0_1, dynamic_eval_images_0_1).mean().item()
-            
-            dynamic_kl_loss = vae.encode(dynamic_eval_images).latent_dist.kl().mean().item()
+            try:
+                dynamic_kl_loss = vae.encode(dynamic_eval_images).latent_dist.kl().mean().item()
+            except: #sana
+                dynamic_kl_loss = torch.tensor(0.0).to(accelerator.device)
             #x_down_dynamic = F.interpolate(dynamic_eval_images, scale_factor=downscale_factor, mode='bilinear', align_corners=False)
             #x_recon_down_dynamic = F.interpolate(dynamic_decoded, scale_factor=downscale_factor, mode='bilinear', align_corners=False)
             #dynamic_scale_loss = F.mse_loss(x_recon_down_dynamic, x_down_dynamic, reduction='sum').item()
@@ -477,9 +526,12 @@ def main():
                 # Encode the input images to get the latent distribution
                 encoded = vae.encode(pixel_values)
                 
-                # Option 1: Sample from distribution (or use mean if desired)
-                latents = encoded.latent_dist.mean
-                
+                try:
+                    # Option 1: Sample from distribution (or use mean if desired)
+                    latents = encoded.latent_dist.mean
+                except: #sana
+                    # Option 2: Use the latent representation directly
+                    latents = encoded.latent
                 # Decode the latents to reconstruct the images
                 decoded = vae.decode(latents)
                 
@@ -497,9 +549,11 @@ def main():
                 else:
                     lpips_loss = torch.tensor(0.0).to(accelerator.device)
                 
-                # KL divergence loss (disabled for SE-regularized models as per paper)
-                kl_loss = encoded.latent_dist.kl().mean() if args.kl_weight > 0 else torch.tensor(0.0).to(accelerator.device)
-                
+                try:
+                    # KL divergence loss (disabled for SE-regularized models as per paper)
+                    kl_loss = encoded.latent_dist.kl().mean() if args.kl_weight > 0 else torch.tensor(0.0).to(accelerator.device)
+                except: #sana
+                    kl_loss = torch.tensor(0.0).to(accelerator.device)
                 # Apply downsampling regularization similar to the video model but for images
                 if args.regularization_alpha > 0:
                     # Randomly choose scale factor from [2, 4] (inverse of [0.5, 0.25])

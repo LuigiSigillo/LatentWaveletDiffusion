@@ -389,7 +389,7 @@ if __name__ == "__main__":
     checkpoint_path = args.checkpoint
     name_exp = checkpoint_path.split("/")[-2]
     root_path_proj = os.path.abspath(os.getcwd())
-    generated_path = os.path.join(root_path_proj,"src",f"output/{name_exp}")
+    generated_path = os.path.join(root_path_proj,"src",f"output/{name_exp}/HPDv2")
     print(f"Generated images will be saved to: {generated_path}")
     
     # Get available GPU IDs

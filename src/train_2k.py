@@ -148,6 +148,11 @@ def parse_args(input_args=None):
         default=10000
     )
     parser.add_argument(
+        "--visualize_every",
+        type=int,
+        default=200
+    )
+    parser.add_argument(
         "--checkpointing_steps",
         type=int,
         default=1000,
@@ -887,10 +892,10 @@ def main(args):
             optimizer.step()
             lr_scheduler.step()
             optimizer.zero_grad()
-            if global_step % 500 == 0 and accelerator.is_main_process:
+            if global_step % args.visualize_every == 0 and accelerator.is_main_process:
                 # Call the visualization function
                 visualization_success = save_tensor_visualizations(
-                    A=A, 
+                    A=A,
                     M=M,
                     model_pred=model_pred,
                     model_input=model_input,
@@ -903,9 +908,17 @@ def main(args):
                     output_dir=args.output_dir,
                     logger=logger,
                     vae=vae,
+                    noisy_model_input=noisy_model_input,
+                    noise=noise,
+                    vae_scale_factor=vae_config_scaling_factor,
+                    vae_shift_factor=vae_config_shift_factor,
+                    accelerator=accelerator # Pass accelerator here
                 )
                 if not visualization_success:
-                    raise Exception("Error during visualization saving process.")
+                    # Log warning instead of raising exception, as tensors are saved
+                    logger.warning(f"Error during visualization saving process for step {global_step}. Raw tensors saved where possible.")
+                    # raise Exception("Error during visualization saving process.") # Optional: uncomment to make it fatal
+
         # Checks if the accelerator has performed an optimization step behind the scenes
         if accelerator.sync_gradients:
             progress_bar.update(1)
@@ -949,148 +962,210 @@ def main(args):
 
 
 # Create this function before the main training loop
+import torchvision
+def decode_and_save(tensor_batch, filename_base, timestep, global_step, vae, scale_factor, shift_factor, viz_dir, logger, accelerator):
+    """Decodes the first latent tensor in a batch and saves as image, logs to wandb if enabled, saves tensor on failure.
+       Applies specific normalization for target, masked_diff, and pred_minus_target."""
+    filename_with_ts = f"{filename_base}_ts{timestep}"
+    img_path = os.path.join(viz_dir, f"{filename_with_ts}.png")
+    tensor_path = os.path.join(viz_dir, f"{filename_with_ts}.pt")
+    log_key = f"visualizations/step_{global_step}/ts_{timestep}/{filename_base}" # Key for wandb logging
 
-def save_tensor_visualizations(A, M, model_pred, model_input, target, masked_diff, timesteps, indices, 
-                              noise_scheduler, global_step, output_dir, logger, vae):
-    """
-    Save visualizations of various tensors during training.
-    
-    Args:
-        A: Wavelet attention map
-        M: Attention mask
-        model_pred: Model prediction tensor
-        target: Target tensor
-        masked_diff: Masked difference tensor
-        timesteps: Current timestep values
-        indices: Timestep indices
-        noise_scheduler: The noise scheduler for getting total timesteps
-        global_step: Current training step
-        output_dir: Base output directory
-        logger: Logger for recording information and errors
-    """
     try:
-        import matplotlib.pyplot as plt
-        import numpy as np
-        import os
-        from torchvision.utils import save_image
-        from diffusers.image_processor import VaeImageProcessor
+        # Use only the first item in the batch for visualization
+        latents = tensor_batch[0].detach().clone()
+        latents = latents.to(vae.device, dtype=vae.dtype)
 
-        # Create visualization directory
-        vis_dir = os.path.join(output_dir, "visualizations", f"step_{global_step}")
-        os.makedirs(vis_dir, exist_ok=True)
-        
-        # Get sample index (first in batch)
-        idx = 0
-        
-        # Save timestep information - important for understanding masks
-        current_timestep = timesteps[idx].item()
-        timestep_index = indices[idx].item()
-        
-        # Save attention map A - convert to float32 first and remove first dimension if needed
-        plt.figure(figsize=(10, 8))
-        attn_data = A[idx].detach().cpu().float().numpy()
-        # Handle case where attention map has shape (1, H, W) instead of (H, W)
-        if len(attn_data.shape) == 3 and attn_data.shape[0] == 1:
-            attn_data = attn_data[0]  # Take first channel to get (H, W)
-        plt.imshow(attn_data, cmap='viridis')
-        plt.colorbar(label='Attention Value')
-        plt.title(f'Wavelet Attention Map (A) at t={current_timestep}')
-        plt.savefig(os.path.join(vis_dir, 'attention_map_A.png'))
-        plt.close()
+        # Inverse scale the latents - This assumes the input tensor is scaled like model_input
+        # For target, masked_diff, and pred_minus_target, this scaling might not be appropriate if they weren't scaled originally.
+        # However, we decode them to see the *structure* after VAE processing.
+        latents = (latents / scale_factor) + shift_factor
+        latents = latents.unsqueeze(0) # Add batch dimension
 
-        # Save mask M - convert to float32 first and remove first dimension if needed
-        plt.figure(figsize=(10, 8))
-        mask_data = M[idx].detach().cpu().float().numpy()
-        # Handle case where mask has shape (1, H, W) instead of (H, W)
-        if len(mask_data.shape) == 3 and mask_data.shape[0] == 1:
-            mask_data = mask_data[0]  # Take first channel to get (H, W)
-        plt.imshow(mask_data, cmap='Blues')
-        plt.colorbar(label='Mask Value')
-        plt.title(f'Attention Mask (M) at t={current_timestep}')
-        plt.savefig(os.path.join(vis_dir, 'mask_M.png'))
-        plt.close()
-        
-        #todo visaualzi masked diff
+        with torch.no_grad():
+            image = vae.decode(latents).sample # Shape (1, C, H, W)
+            image = image.squeeze(0) # Shape (C, H, W)
 
-        # Add VAE decoding to get actual RGB images
-        try:
-            with torch.no_grad():
-                # The issue is the type mismatch, so we need to match the types
-                # Make sure vae_input has the same dtype as the VAE's internal parameters (bfloat16)
-                weight_dtype = next(vae.parameters()).dtype  # Get the actual dtype of the VAE
-                
-                # Scale model_pred for input to VAE and ensure correct dtype
-                vae_input = (model_pred / vae.config.scaling_factor + vae.config.shift_factor).to(dtype=weight_dtype)
-                image_processor = VaeImageProcessor(vae_scale_factor=vae.config.scaling_factor)
- 
-                # Decode model prediction to RGB
-                # decoded_pred = vae.decode(vae_input[idx:idx+1]).sample
-                decoded_pred = vae.decode(vae_input[idx:idx+1], return_dict=False)[0]
-                decoded_pred = image_processor.postprocess(decoded_pred)
+        # --- Normalization ---
+        # For standard latents (model_input, noisy_input, model_pred, noise), assume range needs mapping from [-1, 1] to [0, 1]
+        if filename_base in ["model_input", "noisy_model_input", "model_pred", "noise"]:
+             # Standard VAE output normalization
+            image = (image / 2 + 0.5)
+        # For target, masked_diff, and pred_minus_target their range might be different. Normalize based on their own min/max.
+        elif filename_base in ["target", "masked_diff", "pred_minus_target"]: # Added pred_minus_target here
+            min_val = torch.min(image)
+            max_val = torch.max(image)
+            if max_val > min_val:
+                image = (image - min_val) / (max_val - min_val)
+            else:
+                image = torch.zeros_like(image) # Handle flat image
+        else:
+            # Default or fallback: assume standard normalization
+             logger.warning(f"Applying default normalization for unexpected tensor: {filename_base}")
+             image = (image / 2 + 0.5)
 
-                # Scale target for input to VAE and ensure correct dtype
-                model_input_slice = model_input[idx:idx+1].to(dtype=weight_dtype)
-                target_slice = target[idx:idx+1].to(dtype=weight_dtype)
-                target_vae_input = target_slice / vae.config.scaling_factor + vae.config.shift_factor + model_input_slice
-                
-                # Decode target to RGB
-                # decoded_target = vae.decode(target_vae_input).sample
-                decoded_target = vae.decode(target_vae_input, return_dict=False)[0]
-                decoded_target = image_processor.postprocess(decoded_target)
-                # Convert back to float32 for saving images
-                decoded_pred = decoded_pred.float()
-                decoded_target = decoded_target.float()
-                
-                # Save decoded images
-                save_image(
-                    torch.clamp((decoded_pred + 1.0) / 2.0, min=0.0, max=1.0),
-                    os.path.join(vis_dir, 'decoded_pred.png')
-                )
-                
-                save_image(
-                    torch.clamp((decoded_target + 1.0) / 2.0, min=0.0, max=1.0),
-                    os.path.join(vis_dir, 'decoded_target.png')
-                )
-                
-                # Create a side-by-side comparison of the VAE decoded images
-                plt.figure(figsize=(16, 8))
-                
-                # Convert from torch tensor to numpy for matplotlib
-                decoded_pred_np = decoded_pred[0].permute(1, 2, 0).cpu().float().numpy()
-                decoded_target_np = decoded_target[0].permute(1, 2, 0).cpu().float().numpy()
-                
-                # Normalize to [0,1] for plotting
-                decoded_pred_np = (decoded_pred_np + 1.0) / 2.0
-                decoded_target_np = (decoded_target_np + 1.0) / 2.0
-                
-                plt.subplot(1, 2, 1)
-                plt.imshow(np.clip(decoded_pred_np, 0, 1))
-                plt.title(f'Decoded Prediction (t={current_timestep})')
-                plt.axis('on')
-                
-                plt.subplot(1, 2, 2)
-                plt.imshow(np.clip(decoded_target_np, 0, 1))
-                plt.title(f'Decoded Target (t={current_timestep})')
-                plt.axis('on')
-                
-                plt.tight_layout()
-                plt.savefig(os.path.join(vis_dir, 'decoded_comparison.png'))
-                plt.close()
-                
-                logger.info("Successfully decoded latents to RGB images")
-        except Exception as e:
-            logger.error(f"Error during VAE decoding: {e}")
-            import traceback
-            logger.error(traceback.format_exc())  # Print full traceback for debugging
-        
-        
-        logger.info(f"Saved visualizations to {vis_dir}")
+        image = image.clamp(0, 1) # Clamp final result to [0, 1]
+
+        # Save the image
+        torchvision.utils.save_image(image, img_path) # Takes (C, H, W)
+        logger.info(f"Saved decoded image: {img_path}")
+
+        # Log to wandb if enabled
+        if accelerator.is_main_process and accelerator.log_with in ["wandb", "all"] and wandb is not None:
+            try:
+                # Log the normalized image
+                wandb.log({log_key: wandb.Image(image, caption=f"{filename_base} ts={timestep}")}, step=global_step)
+                logger.info(f"Logged image to wandb: {log_key}")
+            except Exception as wandb_e:
+                logger.error(f"Failed to log image {img_path} to wandb: {wandb_e}")
+
         return True
     except Exception as e:
-        logger.error(f"Error saving visualizations: {e}")
-        import traceback
-        logger.error(traceback.format_exc())  # Print full traceback for debugging
+        logger.error(f"Failed to decode/save image for {filename_with_ts}: {e}. Saving tensor instead.")
+        try:
+            # Save the original detached tensor (first element) from the batch BEFORE VAE decoding
+            torch.save(tensor_batch[0].detach().cpu().float(), tensor_path)
+            logger.info(f"Saved raw tensor: {tensor_path}")
+            # Optional tensor artifact logging...
+        except Exception as save_e:
+            logger.error(f"Failed to save tensor for {filename_with_ts}: {save_e}")
+            return False
         return False
+
+
+def save_map(map_batch, filename_base, timestep, global_step, viz_dir, logger, accelerator, colormap='viridis'):
+    """Saves the first map in a batch as a heatmap image, logs to wandb if enabled, saves tensor on failure."""
+    filename_with_ts = f"{filename_base}_ts{timestep}"
+    img_path = os.path.join(viz_dir, f"{filename_with_ts}.png")
+    tensor_path = os.path.join(viz_dir, f"{filename_with_ts}.pt")
+    log_key = f"visualizations/step_{global_step}/ts_{timestep}/{filename_base}" # Key for wandb logging
+    import matplotlib.cm as cm
+    try:
+        # Use only the first item in the batch
+        map_tensor = map_batch[0].detach().clone().cpu().float()
+
+        # Handle potential channel dimension (e.g., B, 1, H, W -> B, H, W)
+        if map_tensor.dim() == 3 and map_tensor.shape[0] == 1:
+            map_tensor = map_tensor.squeeze(0) # Now shape (H, W)
+        elif map_tensor.dim() != 2:
+            raise ValueError(f"Unsupported map dimension for heatmap: {map_tensor.dim()}. Expected 2D.")
+
+        # Normalize map to [0, 1] for colormap application
+        min_val = torch.min(map_tensor)
+        max_val = torch.max(map_tensor)
+        if max_val > min_val:
+            map_tensor_normalized = (map_tensor - min_val) / (max_val - min_val)
+        else:
+            map_tensor_normalized = torch.zeros_like(map_tensor) # Handle case of flat map
+
+        # Apply colormap
+        cmap = cm.get_cmap(colormap)
+        heatmap_np = cmap(map_tensor_normalized.numpy())[:, :, :3] # Apply cmap, take RGB channels, shape (H, W, 3)
+        heatmap_tensor = torch.from_numpy(heatmap_np).permute(2, 0, 1) # Convert to tensor (C, H, W) with C=3
+
+        # Save the heatmap image
+        torchvision.utils.save_image(heatmap_tensor, img_path)
+        logger.info(f"Saved heatmap image: {img_path}")
+
+        # Log to wandb if enabled
+        if accelerator.is_main_process and accelerator.log_with in ["wandb", "all"] and wandb is not None:
+             try:
+                 # Log the heatmap tensor directly
+                 wandb.log({log_key: wandb.Image(heatmap_tensor, caption=f"{filename_base} ts={timestep} ({colormap})")}, step=global_step)
+                 logger.info(f"Logged heatmap image to wandb: {log_key}")
+             except Exception as wandb_e:
+                 logger.error(f"Failed to log heatmap image {img_path} to wandb: {wandb_e}")
+
+        return True
+    except Exception as e:
+        logger.error(f"Failed to save heatmap image for {filename_with_ts}: {e}. Saving tensor instead.")
+        try:
+            # Save the original detached tensor (first element) from the batch
+            torch.save(map_batch[0].detach().cpu().float(), tensor_path)
+            logger.info(f"Saved raw map tensor: {tensor_path}")
+            # Optional tensor artifact logging...
+        except Exception as save_e:
+            logger.error(f"Failed to save tensor for {filename_with_ts}: {save_e}")
+            return False
+        return False
+
+
+def save_tensor_visualizations(A, M, model_pred, model_input, target, masked_diff, # Removed pred_minus_target from args
+                              timesteps, indices, noise_scheduler, global_step, output_dir, logger, vae,
+                              noisy_model_input, noise, vae_scale_factor, vae_shift_factor, accelerator):
+    """
+    Save visualizations of various tensors during training. Attempts to decode latents
+    using VAE, logs images to wandb if enabled, falls back to saving raw tensors if decoding fails.
+    Includes timestep in filenames. Applies specific normalization and heatmaps. Calculates pred_minus_target internally.
+
+    Args:
+        # ... (previous args, excluding pred_minus_target) ...
+        accelerator: The Accelerator object for checking wandb status and process rank.
+    """
+    overall_success = True
+    try:
+        viz_dir = os.path.join(output_dir, "visualizations", f"step_{global_step}")
+        os.makedirs(viz_dir, exist_ok=True)
+        logger.info(f"Saving visualizations for step {global_step} to {viz_dir}")
+
+        current_timestep = timesteps[0].item() if timesteps is not None and len(timesteps) > 0 else "unknown"
+        logger.info(f"Visualizing tensors for timestep: {current_timestep}")
+
+        # --- Calculate pred_minus_target internally ---
+        pred_minus_target = None
+        if model_pred is not None and target is not None:
+            try:
+                pred_minus_target = model_pred - target
+            except Exception as calc_e:
+                logger.error(f"Failed to calculate pred_minus_target: {calc_e}")
+        else:
+            logger.warning("Cannot calculate pred_minus_target because model_pred or target is None.")
+
+
+        # --- Save Maps (A and M) as Heatmaps ---
+        map_colormap = 'viridis'
+        if A is not None:
+             if not save_map(A, "A_wavelet_attention", current_timestep, global_step, viz_dir, logger, accelerator, colormap=map_colormap):
+                 overall_success = False
+        if M is not None:
+            if not save_map(M, "M_mask", current_timestep, global_step, viz_dir, logger, accelerator, colormap=map_colormap):
+                overall_success = False
+
+        # --- Decode and Save Latent-based Tensors ---
+        tensors_to_decode = {
+            "noisy_model_input": noisy_model_input,
+            "masked_diff": masked_diff,         # Will use min/max normalization
+            "model_pred": model_pred,           # Will use standard [-1,1] -> [0,1] normalization
+            "target": target,                   # Will use min/max normalization
+            "pred_minus_target": pred_minus_target, # Will use min/max normalization (if calculated)
+            "noise": noise,                     # Will use standard [-1,1] -> [0,1] normalization
+            "model_input": model_input,         # Will use standard [-1,1] -> [0,1] normalization
+        }
+
+        vae.eval()
+
+        for name, tensor in tensors_to_decode.items():
+            if tensor is not None:
+                # decode_and_save now handles the specific normalization internally based on 'name'
+                if not decode_and_save(tensor, name, current_timestep, global_step, vae, vae_scale_factor, vae_shift_factor, viz_dir, logger, accelerator):
+                    overall_success = False
+            else:
+                 # Log warning only if it wasn't the internally calculated pred_minus_target that failed
+                 if name != "pred_minus_target" or (model_pred is not None and target is not None):
+                     logger.warning(f"Tensor '{name}' is None, skipping visualization.")
+
+    except Exception as e:
+        logger.error(f"An unexpected error occurred during visualization saving for step {global_step}: {e}", exc_info=True)
+        overall_success = False
+
+    if overall_success:
+        logger.info(f"Successfully completed visualization saving attempt for step {global_step}.")
+    else:
+        logger.warning(f"Visualization saving process encountered errors for step {global_step}. Check logs and saved tensors.")
+
+    return overall_success
+
+    
 
 if __name__ == "__main__":
     args = parse_args()

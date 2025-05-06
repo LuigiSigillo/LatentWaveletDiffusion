@@ -21,13 +21,13 @@ export https_proxy=http://login07:3168
 
 export MODEL_NAME="black-forest-labs/FLUX.1-dev"
 export VAE_MODEL_NAME="/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/vae_SE_finetuning/ckpt/VAE_SE/checkpoint-60000"
-#export DATA_DIR="/leonardo_scratch/large/userexternal/lsigillo/Aesthetic-4K/train"
-#export LATENT_CODE_DIR="/leonardo_scratch/large/userexternal/lsigillo/Aesthetic_se_latents_4096"
-#export OUTPUT_DIR="/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ckpt/4K_URAE_VAE_SE_WAV_ATT_AESTHETIC_4096"
+export DATA_DIR="/leonardo_scratch/large/userexternal/lsigillo/Aesthetic-4K/train"
+export LATENT_CODE_DIR="/leonardo_scratch/large/userexternal/lsigillo/Aesthetic_se_latents_4096"
+export OUTPUT_DIR="/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ckpt/4K_URAE_VAE_SE_WAV_ATT_AESTHETIC_4096"
 
-export DATA_DIR="/leonardo_scratch/large/userexternal/lsigillo/laion_high_res_images_4K/"
-export LATENT_CODE_DIR="/leonardo_scratch/large/userexternal/lsigillo/LAION_se_latents_4096"
-export OUTPUT_DIR="/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ckpt/4K_URAE_VAE_SE_WAV_ATT_LAION_4096"
+# export DATA_DIR="/leonardo_scratch/large/userexternal/lsigillo/laion_high_res_images_4K/"
+# export LATENT_CODE_DIR="/leonardo_scratch/large/userexternal/lsigillo/LAION_se_latents_4096"
+# export OUTPUT_DIR="/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ckpt/4K_URAE_VAE_SE_WAV_ATT_LAION_4096"
 
 export PRECISION="bf16"
 # export CUDA_VISIBLE_DEVICES=0,1,2,3
@@ -58,4 +58,5 @@ MASTER_PORT=$MASTER_PORT accelerate launch --main_process_port $MASTER_PORT --nu
   --cache_dir=$SCRATCH \
   --latent_code_dir=$LATENT_CODE_DIR \
   --pretrained_vae_path=$VAE_MODEL_NAME \
+  --resume_from_checkpoint="latest"
 

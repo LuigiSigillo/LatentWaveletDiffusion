@@ -16,6 +16,7 @@ import hpsv2
 from pipeline_flux import FluxPipeline
 from transformer_flux import FluxTransformer2DModel
 from multiprocessing import Process
+import argparse
 
 
 def calculate_fid_for_all(generated_folder, reference_folder):
@@ -445,46 +446,50 @@ def HPDv2_generate_images(data, output_dir, checkpoint_path, device_str,
 if __name__ == "__main__":
     set_hf_cache_dir("/leonardo_scratch/large/userexternal/lsigillo/")
     
-    import argparse
     parser = argparse.ArgumentParser(description="Generate images from JSON prompts")
     parser.add_argument("--json_file", type=str, default="/leonardo_scratch/large/userexternal/lsigillo/HPDv2/test.json", help="Path to the JSON file")
-    parser.add_argument("--output_dir", type=str, required=True, help="Directory to save the generated images")
-    parser.add_argument("--model_id", type=str, default="", 
-                        help="Model ID from Hugging Face")
-    seed = 42
-    gen_seed = torch.manual_seed(seed=seed)
+    parser.add_argument("--output_dir", type=str, help="Directory to save the generated images")
+    parser.add_argument("--checkpoint_path", type=str, default="/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ckpt/URAE_VAE_SE_WAV_ATT_LAION/checkpoint-2000", help="Model ID from Hugging Face")
+    parser.add_argument("--cache_dir", type=str, default="/leonardo_scratch/large/userexternal/lsigillo/", help="Cache directory for model loading")
+    parser.add_argument("--height", type=int, default=2048, help="Height of the generated images")
+    parser.add_argument("--width", type=int, default=2048, help="Width of the generated images")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
+    parser.add_argument("--generated_folder_hpdv2", type=str, default="/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/output/URAE_VAE_SE_WAV_ATT_LAION", help="Path to the generated images folder")
+    parser.add_argument("--reference_folder_hpdv2", type=str, default="/leonardo_scratch/large/userexternal/lsigillo/HPDv2/test", help="Path to the reference images folder")
+    parser.add_argument("--prompt_folder_dpg", type=str, default="/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ELLA/dpg_bench/prompts", help="Path to the prompt folder")
     args = parser.parse_args()
-    generate_images_from_prompts_parallel(args.json_file, args.output_dir, args.model_id, 
-                                        cache_dir="/leonardo_scratch/large/userexternal/lsigillo/",
-                                           height=2048, width=2048, gen_seed=gen_seed, dpg=False)   
-
-    # generated_folder = "/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/output/URAE_VAE_SE_WAV_ATT_LAION"
-    # reference_folder = "/leonardo_scratch/large/userexternal/lsigillo/HPDv2/test"
-    # seed= 42  # Set a seed for reproducibility
+    gen_seed = torch.manual_seed(seed=args.seed)
     
-    # # Compute both FID and LPIPS
-    # calculate_fid_and_lpips(generated_folder, reference_folder, compute_fid=False, compute_lpips=True)
-
-    # # Compute FID for all generated subfolders against all reference images
-    # calculate_fid_for_all(generated_folder, reference_folder)
-
-    # # Compute LPIPS for all generated subfolders against all reference images
-    # calculate_lpips_for_all(generated_folder, reference_folder)
-    # all_prompts = hpsv2.benchmark_prompts('all')
-    # average_scores = calculate_average_pickscore_from_prompts(all_prompts, generated_folder)
-    # print("Average scores for all subfolders:", average_scores)
-    # # Calculate the average
-    # average_score = np.mean(list(average_scores.values()))
-
-    # # Print the average
-    # print(f"Overall average score: {average_score:.4f}")
-
-    # prompt_folder = "/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ELLA/dpg_bench/prompts"
-    # output_folder = "/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/output/URAE_VAE_SE_WAV_ATT_LAION/DPG"
-    # checkpoint_path = "/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ckpt/URAE_VAE_SE_WAV_ATT_LAION/checkpoint-2000"
-    # cache_dir = "/leonardo_scratch/large/userexternal/lsigillo/"
-    # seed = 42  # Set a seed for reproducibility
-    # gen_seed = torch.manual_seed(seed)
-    # generate_images_from_prompts_parallel(prompt_folder, output_folder, checkpoint_path, cache_dir, gen_seed=gen_seed, dpg=True)   
+    # # GENERATE IMAGES HPDv2
+    # generate_images_from_prompts_parallel(args.json_file, os.path.join(args.output_dir,"HPDv2"), args.checkpoint_path, 
+    #                                     cache_dir="/leonardo_scratch/large/userexternal/lsigillo/",
+    #                                        height=2048, width=2048, gen_seed=gen_seed, dpg=False)   
+     
+    # # GENERATE IMAGES DPG
+    # output_dir_dpg = os.path.join(args.output_dir,"DPG")
+    # generate_images_from_prompts_parallel(args.prompt_folder_dpg, output_dir_dpg, 
+    #                                       args.checkpoint_path, args.cache_dir, gen_seed=gen_seed, dpg=True)   
     
-    # os.system(f"bash /leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ELLA/dpg_bench/dist_eval.sh {output_folder} {2048}]")
+    # os.system(f"bash /leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ELLA/dpg_bench/dist_eval.sh {output_dir_dpg} {2048}")
+    
+    
+    generated_folder = args.checkpoint_path.replace("ckpt", "output")
+    #replace the last part of the path with HPDv2
+    generated_folder = os.path.join(os.path.dirname(generated_folder), "HPDv2")    # Check if the generated folder exists
+    # Compute both FID and LPIPS
+    calculate_fid_and_lpips(generated_folder, args.reference_folder_hpdv2, compute_fid=False, compute_lpips=True)
+
+    # Compute FID for all generated subfolders against all reference images
+    calculate_fid_for_all(generated_folder, args.reference_folder_hpdv2)
+
+    # Compute LPIPS for all generated subfolders against all reference images
+    calculate_lpips_for_all(generated_folder, args.reference_folder_hpdv2)
+    all_prompts = hpsv2.benchmark_prompts('all')
+    average_scores = calculate_average_pickscore_from_prompts(all_prompts, generated_folder)
+    print("Average scores for all subfolders:", average_scores)
+    # Calculate the average
+    average_score = np.mean(list(average_scores.values()))
+
+    # Print the average
+    print(f"Overall average score: {average_score:.4f}")
+
