@@ -3,7 +3,7 @@ import torch
 from pipeline_flux import FluxPipeline
 from transformer_flux import FluxTransformer2DModel
 import os
-
+import random
 prompts_URAE = [
     "girl with pink hair, vaporwave style, retro aesthetic, cyberpunk, vibrant, neon colors, vintage 80s and 90s style, highly detailed.",
     
@@ -74,7 +74,7 @@ prompts_comp_diff4k = [
     
     "A curvy timber house near a sea, designed by Zaha Hadid, represent the image of a cold, modern architecture, at night, white lighting, highly detailed.",
     
-    "a cyberpunk cat with a neon sign that says \"Fast\"",
+    "a cyberpunk cat with a neon sign that says \"WALD\"",
     
     "A very detailed and realistic full body photo set of a tall, slim, and athletic Shiba Inu in a white oversized straight t-shirt, white shorts, and short white shoes.",
     
@@ -88,7 +88,7 @@ list_of_checkpoints_flux_models = [
     # "/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ckpt/4K_URAE_VAE_SE_WAV_ATT_LAION_4096/checkpoint-1000",
     
     
-    # "/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ckpt/URAE_VAE_SE_WAV_ATT_AESTHETIC_2K/checkpoint-2000", #HELP non funziona
+    "/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ckpt/URAE_VAE_SE_WAV_ATT_AESTHETIC_2K/checkpoint-2000", #HELP non funziona
     "/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ckpt/URAE_VAE_SE_WAV_ATT_AESTHETIC_2048/checkpoint-2000", #help img non belle
     
     "/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ckpt/URAE_original_trained_by_me/checkpoint-2000",
@@ -104,11 +104,11 @@ prompt_list_names = {
     "prompts_comp_diff4k": prompts_comp_diff4k
 }
 # Use the current prompts list you're working with
-current_prompts = "prompts_diff4k"
+current_prompts = "prompts_URAE"
 
 device_str = "cuda:0"
-height = 2048
-width = 2048
+height_options = [1560, 2048]
+width_options = [1560, 2048]
 seed= 42
 output_dir = "/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/output"
 gen_seed = torch.manual_seed(seed=seed)
@@ -134,7 +134,11 @@ for checkpoint_path in tqdm(list_of_checkpoints_flux_models):
     os.makedirs(os.path.join(output_dir, name_exp, f"paper_{current_prompts}"), exist_ok=True)
 
     for idx, prompt in tqdm(enumerate(curr_list)):
-        # image = TextToImageModel(prompt)
+        while True:
+            height = random.choice(height_options)
+            width = random.choice(width_options)
+            if height != 1556 or width != 1556:
+                break
         image = pipe(
             prompt,
             height=height,
@@ -147,4 +151,4 @@ for checkpoint_path in tqdm(list_of_checkpoints_flux_models):
             proportional_attention=True
         ).images[0]
         # TextToImageModel is the model you want to evaluate
-        image.save(os.path.join(output_dir, name_exp, f"paper_{current_prompts}", f"{idx:05d}.jpg"))
+        image.save(os.path.join(output_dir, name_exp, f"paper_{current_prompts}", f"{idx:05d}_{height}x{width}.jpg"))

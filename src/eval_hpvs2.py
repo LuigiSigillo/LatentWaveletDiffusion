@@ -473,23 +473,39 @@ if __name__ == "__main__":
     # os.system(f"bash /leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ELLA/dpg_bench/dist_eval.sh {output_dir_dpg} {2048}")
     
     
-    generated_folder = args.checkpoint_path.replace("ckpt", "output")
-    #replace the last part of the path with HPDv2
-    generated_folder = os.path.join(os.path.dirname(generated_folder), "HPDv2")    # Check if the generated folder exists
-    # Compute both FID and LPIPS
-    calculate_fid_and_lpips(generated_folder, args.reference_folder_hpdv2, compute_fid=False, compute_lpips=True)
+    # generated_folder = args.checkpoint_path.replace("ckpt", "output")
+    # #replace the last part of the path with HPDv2
+    # generated_folder = os.path.join(os.path.dirname(generated_folder), "HPDv2")    # Check if the generated folder exists
+    # # Compute both FID and LPIPS
+    # calculate_fid_and_lpips(generated_folder, args.reference_folder_hpdv2, compute_fid=False, compute_lpips=True)
 
-    # Compute FID for all generated subfolders against all reference images
-    calculate_fid_for_all(generated_folder, args.reference_folder_hpdv2)
+    # # Compute FID for all generated subfolders against all reference images
+    # calculate_fid_for_all(generated_folder, args.reference_folder_hpdv2)
 
-    # Compute LPIPS for all generated subfolders against all reference images
-    calculate_lpips_for_all(generated_folder, args.reference_folder_hpdv2)
-    all_prompts = hpsv2.benchmark_prompts('all')
-    average_scores = calculate_average_pickscore_from_prompts(all_prompts, generated_folder)
-    print("Average scores for all subfolders:", average_scores)
-    # Calculate the average
-    average_score = np.mean(list(average_scores.values()))
+    # # Compute LPIPS for all generated subfolders against all reference images
+    # calculate_lpips_for_all(generated_folder, args.reference_folder_hpdv2)
+    # all_prompts = hpsv2.benchmark_prompts('all')
+    # average_scores = calculate_average_pickscore_from_prompts(all_prompts, generated_folder)
+    # print("Average scores for all subfolders:", average_scores)
+    # # Calculate the average
+    # average_score = np.mean(list(average_scores.values()))
 
-    # Print the average
-    print(f"Overall average score: {average_score:.4f}")
+    # # Print the average
+    # print(f"Overall average score: {average_score:.4f}")
 
+    import torch
+    from diffusers import StableDiffusion3Pipeline
+
+    pipe = StableDiffusion3Pipeline.from_pretrained("stabilityai/stable-diffusion-3.5-large", 
+                                            cache_dir=args.cache_dir,
+                                            torch_dtype=torch.bfloat16)
+    pipe = pipe.to("cuda")
+
+    image = pipe(
+        "A capybara holding a sign that reads Hello World",
+        num_inference_steps=28,
+        guidance_scale=3.5,
+        width=2048,
+        height=2048,
+    ).images[0]
+    image.save("capybara.png")
