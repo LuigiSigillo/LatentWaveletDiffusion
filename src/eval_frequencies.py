@@ -14,25 +14,17 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 from pytorch_wavelets import DWTForward, DWTInverse
 from tqdm import tqdm
-import logging # Import logging
+import logging
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Custom collate function (if you decide to use it later)
-# def collate_skip_none(batch):
-#     batch = [item for item in batch if item is not None]
-#     if not batch:
-#         return None 
-#     return torch.utils.data.dataloader.default_collate(batch)
 
 class ImageDataset(Dataset):
     """Dataset for loading and preprocessing images for frequency analysis"""
-    
     def __init__(self, directory, img_size=(256, 256)):
         """
         Initialize dataset with images from a directory.
-        
         Args:
             directory (str): Directory containing images
             img_size (tuple): Target size for resizing images
@@ -41,76 +33,52 @@ class ImageDataset(Dataset):
         for root, _, files in os.walk(directory):
             for ext in ['*.jpg', '*.png', '*.jpeg']:
                 self.image_paths.extend(glob(os.path.join(root, ext)))
-                          
         if not self.image_paths:
-            raise ValueError(f"No images found in {directory}")  
+            raise ValueError(f"No images found in {directory}")
+
         self.transform = transforms.Compose([
             transforms.ToPILImage(),
             transforms.Resize(img_size),
             transforms.ToTensor(),
         ])
-        
         self.img_size = img_size
-        
+
     def __len__(self):
         return len(self.image_paths)
-        
+
     def __getitem__(self, idx):
         max_attempts = 5  # Limit recursive attempts to avoid infinite loops
         return self._get_item_with_retry(idx, attempts=0, max_attempts=max_attempts)
-    
+
     def _get_item_with_retry(self, idx, attempts=0, max_attempts=5):
-        """Helper method to get an item with retry logic to avoid infinite recursion"""
+        """Helper method to get an item with retry logic to avoid infinite loops"""
         if attempts >= max_attempts:
-            # If too many attempts, return a simple valid tensor
             print(f"Too many failed attempts to load images, returning dummy tensor")
             return torch.zeros((1, *self.img_size), dtype=torch.float32)
-            
         img_path = self.image_paths[idx]
-        
-        # Load image
         try:
             img = imread(img_path)
-            
-            # Check if image is valid
             if img is None or img.size == 0:
                 raise ValueError(f"Empty image data from {img_path}")
-                
         except Exception as e:
-            # print(f"Error loading image {img_path}: {e}")
-            # Try a different image instead of recursive call
-            new_idx = np.random.randint(0, len(self.image_paths))
-            return self._get_item_with_retry(new_idx, attempts + 1, max_attempts)
-            
-        # Handle images with different channel counts
+            return self._get_item_with_retry(np.random.randint(0, len(self.image_paths)), attempts + 1, max_attempts)
+
         try:
             if len(img.shape) > 2:
-                if img.shape[2] == 4:  # RGBA image
-                    # Drop alpha channel
+                if img.shape[2] == 4:
                     img = img[:, :, :3]
-                # Convert RGB to grayscale
                 if img.shape[2] >= 3:
                     img = rgb2gray(img)
-                    
-            # Ensure image is 2D (grayscale)
             if len(img.shape) != 2:
-                print(f"Unexpected image shape after conversion: {img.shape} for {img_path}")
-                new_idx = np.random.randint(0, len(self.image_paths))
-                return self._get_item_with_retry(new_idx, attempts + 1, max_attempts)
-                
-            # Resize and convert to tensor (now guaranteed to be grayscale)
+                return self._get_item_with_retry(np.random.randint(0, len(self.image_paths)), attempts + 1, max_attempts)
+
             img_tensor = self.transform(img.astype(np.float32))
-            
-            # Ensure tensor has 1 channel
             if img_tensor.shape[0] > 1:
                 img_tensor = img_tensor[0].unsqueeze(0)
-                
             return img_tensor
         except Exception as e:
-            print(f"Error processing image {img_path}: {e}")
-            new_idx = np.random.randint(0, len(self.image_paths))
-            return self._get_item_with_retry(new_idx, attempts + 1, max_attempts)
-            
+            return self._get_item_with_retry(np.random.randint(0, len(self.image_paths)), attempts + 1, max_attempts)
+           
 class FrequencyAnalyzer:
     """
     A class to analyze frequency characteristics of images, including:
@@ -713,138 +681,96 @@ class FrequencyAnalyzer:
         
         df = pd.DataFrame(data)
         return df
+    
+    def compute_wdp(self, real_img_tensor, gen_img_tensor):
+        """
+        Compute Wavelet Detail Preservation (WDP) score.
+        Args:
+            real_img_tensor (torch.Tensor): Ground truth image (1xHxW)
+            gen_img_tensor (torch.Tensor): Generated image (1xHxW)
+        Returns:
+            float: WDP score ∈ [0, 1]
+        """
+        dwt = DWTForward(J=1, wave='haar').to(self.device)
+        _, [real_H] = dwt(real_img_tensor.unsqueeze(0))
+        _, [gen_H] = dwt(gen_img_tensor.unsqueeze(0))
 
+        real_H = torch.cat(real_H.unbind(0), dim=0)
+        gen_H = torch.cat(gen_H.unbind(0), dim=0)
 
-# Example usage
-def main(paths_dict_img_generated,real_dir=None):
-    # Create output directories if they don't exist
-    figures_path = os.path.join(os.path.dirname(paths_dict_img_generated['WALD']),'figures')
-    results_path = os.path.join(os.path.dirname(paths_dict_img_generated['WALD']),'results')
+        diff = torch.norm(real_H - gen_H, p=2)
+        norm = torch.norm(real_H, p=2)
+        return float(torch.exp(-diff / (norm + 1e-8)))
+    
+    def create_wdp_table(self, real_dir, method_dirs, results_path):
+        """
+        NEW: Create a table comparing WDP scores between methods and real images.
+        """
+        results = []
+
+        real_dataset = ImageDataset(real_dir, self.img_size)
+        real_loader = DataLoader(real_dataset, batch_size=self.batch_size, shuffle=False, num_workers=4)
+
+        real_images = []
+        for batch in real_loader:
+            real_images.extend([b.to(self.device) for b in batch])
+
+        for method_name, dir_path in method_dirs.items():
+            gen_dataset = ImageDataset(dir_path, self.img_size)
+            gen_loader = DataLoader(gen_dataset, batch_size=self.batch_size, shuffle=False, num_workers=4)
+
+            wdp_scores = []
+            for i, gen_batch in tqdm(enumerate(gen_loader)):
+                if i >= len(real_images):
+                    break
+                real_img = real_images[i].to(self.device)
+                for gen_img in gen_batch:
+                    if gen_img.dim() == 2:
+                        gen_img = gen_img.unsqueeze(0)
+                    wdp = self.compute_wdp(real_img, gen_img.to(self.device))
+                    wdp_scores.append(wdp)
+
+            results.append({
+                'Method': method_name,
+                'WDP': np.mean(wdp_scores),
+                'WDP_std': np.std(wdp_scores)
+            })
+
+        df = pd.DataFrame(results)
+        df.to_csv(os.path.join(results_path,'detail_preservation.csv'), index=False)
+        return df
+
+def main(paths_dict_img_generated, real_dir=None):
+    figures_path = os.path.join(os.path.dirname(paths_dict_img_generated['WALD']), 'figures')
+    results_path = os.path.join(os.path.dirname(paths_dict_img_generated['WALD']), 'results')
     os.makedirs(figures_path, exist_ok=True)
     os.makedirs(results_path, exist_ok=True)
-    
-    # Initialize analyzer with GPU acceleration
-    analyzer = FrequencyAnalyzer(img_size=(256, 256), batch_size=16)
-    
-    # Define directories for each method
-    # real_dir = '/leonardo_scratch/large/userexternal/lsigillo/laion_high_res_images_2K'
 
-    # Add frequency band analysis
-    def analyze_frequency_bands(comparison_results):
-        """Analyze the PSD in specific frequency bands"""
-        print("\nFrequency Band Analysis:")
-        
-        # Define frequency bands (in cycles/pixel)
-        bands = {
-            'Low': (0.0, 0.1),
-            'Mid': (0.1, 0.3),
-            'High': (0.3, 0.5)
-        }
-        
-        real_psd = comparison_results['real_results']['avg_psd']
-        freq_bins = comparison_results['real_results']['freq_bins']
-        
-        band_results = {}
-        
-        # For each method
-        for method_name, results in comparison_results['method_results'].items():
-            method_psd = results['avg_psd']
-            band_results[method_name] = {}
-            
-            # For each frequency band
-            for band_name, (low, high) in bands.items():
-                # Find indices for this band
-                indices = np.where((freq_bins >= low) & (freq_bins <= high))[0]
-                
-                if len(indices) == 0:
-                    continue
-                
-                # Extract PSD values for this band
-                real_band_psd = real_psd[indices]
-                method_band_psd = method_psd[indices]
-                
-                # Calculate metrics
-                band_mse = mean_squared_error(real_band_psd, method_band_psd)
-                band_emd = wasserstein_distance(real_band_psd, method_band_psd)
-                
-                # Store results
-                band_results[method_name][band_name] = {
-                    'MSE': band_mse,
-                    'EMD': band_emd
-                }
-        
-        # Print results
-        for band_name in bands.keys():
-            print(f"\n{band_name} Frequency Band (MSE, lower is better):")
-            for method_name in band_results.keys():
-                if band_name in band_results[method_name]:
-                    print(f"  {method_name}: {band_results[method_name][band_name]['MSE']:.6f}")
-        
-        return band_results
-    
-    # Compare methods with GPU-accelerated processing
+    analyzer = FrequencyAnalyzer(img_size=(2048, 2048), batch_size=4)
+
     print("Starting analysis of image directories...")
     comparison_results = analyzer.compare_methods(real_dir, paths_dict_img_generated)
-    
-    # Plot spectral analysis
+
     print("Generating spectral analysis plot...")
-    analyzer.plot_spectral_analysis(comparison_results, save_path=os.path.join(figures_path,'spectral_analysis.pdf'))
-    
-    # Create wavelet energy table
+    analyzer.plot_spectral_analysis(comparison_results, save_path=os.path.join(figures_path, 'spectral_analysis.pdf'))
+
+    print("Creating wavelet energy table...")
     wavelet_table = analyzer.create_wavelet_energy_table(comparison_results)
     print("\nWavelet Energy Analysis:")
     print(wavelet_table)
-    
-    # Save the table
-    wavelet_table.to_csv(os.path.join(results_path,'wavelet_energy.csv'), index=False)
-    
-    # Print percentage comparisons for paper - only if methods are available
-    real_ratio = comparison_results['real_results']['wavelet_metrics']['energy_ratio']
-    wald_ratio = comparison_results['method_results']['WALD']['wavelet_metrics']['energy_ratio']
-    
-    # # Check if LDM and YODA methods are in the results
-    # print(f"\nPercentage Comparisons:")
-    # if 'LDM' in comparison_results['method_results']:
-    #     ldm_ratio = comparison_results['method_results']['LDM']['wavelet_metrics']['energy_ratio']
-    #     wald_vs_ldm = (wald_ratio / ldm_ratio - 1) * 100 if ldm_ratio > 0 else 0
-    #     print(f"WALD preserves {wald_vs_ldm:.1f}% more high-frequency energy compared to LDM")
-    # else:
-    #     print("LDM method not available for comparison")
-        
-    # if 'YODA' in comparison_results['method_results']:
-    #     yoda_ratio = comparison_results['method_results']['YODA']['wavelet_metrics']['energy_ratio']
-    #     wald_vs_yoda = (wald_ratio / yoda_ratio - 1) * 100 if yoda_ratio > 0 else 0
-    #     print(f"WALD preserves {wald_vs_yoda:.1f}% more high-frequency energy compared to YODA")
-    # else:
-    #     print("YODA method not available for comparison")
-    
-    # Print PSD similarity metrics
-    print("\nPSD Similarity Metrics (lower is better):")
-    for method, metrics in comparison_results['comparison'].items():
-        print(f"{method}: MSE = {metrics['psd_mse']:.6f}, EMD = {metrics['psd_emd']:.6f}")
-        
-    # Perform frequency band analysis
-    band_results = analyze_frequency_bands(comparison_results)
-    
-    # Add perceptual correlation analysis
-    print("\nPerceptual Correlation Analysis:")
-    print("Note: For a complete perceptual analysis, consider implementing LPIPS or MS-SSIM")
-    print("These metrics would provide better correlation with human perception")
-    
+
+    print("Creating WDP metric table...")
+    wdp_table = analyzer.create_wdp_table(real_dir, paths_dict_img_generated, results_path)
+    print("\nWavelet Detail Preservation (WDP):")
+    print(wdp_table)
+
     print("\nAnalysis complete! Results saved to figures/ and results/ directories.")
 
 
 if __name__ == "__main__":
-        
     method_dirs = {
         'WALD': "/mnt/share/Luigi/Documents/URAE/src/output/URAE_VAE_SE_WAV_ATT_LAION",
-        # 'LDM': './data/ldm_images',
-        # 'YODA': './data/yoda_images',
         'URAE': '/mnt/share/Luigi/Documents/URAE/src/output/URAE_original_trained_by_me'
     }
-
-    real_dir = "/mnt/share/Luigi/Documents/URAE/dataset/laion_high_resolution_images"    
-    main(
-        method_dirs,
-        real_dir
-    )
+    real_dir = "/mnt/share/Luigi/Documents/URAE/dataset/laion_high_resolution_images"
+    main(method_dirs, real_dir)
