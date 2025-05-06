@@ -37,13 +37,13 @@ class ImageDataset(Dataset):
             directory (str): Directory containing images
             img_size (tuple): Target size for resizing images
         """
-        self.image_paths = glob(os.path.join(directory, '*.jpg')) + \
-                          glob(os.path.join(directory, '*.png')) + \
-                          glob(os.path.join(directory, '*.jpeg'))
+        self.image_paths = []
+        for root, _, files in os.walk(directory):
+            for ext in ['*.jpg', '*.png', '*.jpeg']:
+                self.image_paths.extend(glob(os.path.join(root, ext)))
                           
         if not self.image_paths:
-            raise ValueError(f"No images found in {directory}")
-            
+            raise ValueError(f"No images found in {directory}")  
         self.transform = transforms.Compose([
             transforms.ToPILImage(),
             transforms.Resize(img_size),
@@ -716,23 +716,19 @@ class FrequencyAnalyzer:
 
 
 # Example usage
-def main(path_img_generated=None):
+def main(paths_dict_img_generated,real_dir=None):
     # Create output directories if they don't exist
-    os.makedirs('./figures', exist_ok=True)
-    os.makedirs('./results', exist_ok=True)
+    figures_path = os.path.join(os.path.dirname(paths_dict_img_generated['WALD']),'figures')
+    results_path = os.path.join(os.path.dirname(paths_dict_img_generated['WALD']),'results')
+    os.makedirs(figures_path, exist_ok=True)
+    os.makedirs(results_path, exist_ok=True)
     
     # Initialize analyzer with GPU acceleration
     analyzer = FrequencyAnalyzer(img_size=(256, 256), batch_size=16)
     
     # Define directories for each method
-    real_dir = '/leonardo_scratch/large/userexternal/lsigillo/laion_high_res_images_2K'
-    method_dirs = {
-        'WALD': '/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/output/URAE_VAE_SE_WAV_ATT_LAION',
-        # 'LDM': './data/ldm_images',
-        # 'YODA': './data/yoda_images',
-        # 'Baseline': '/leonardo_scratch/large/userexternal/lsigillo/laion_high_res_images_2K'
-    }
-    
+    # real_dir = '/leonardo_scratch/large/userexternal/lsigillo/laion_high_res_images_2K'
+
     # Add frequency band analysis
     def analyze_frequency_bands(comparison_results):
         """Analyze the PSD in specific frequency bands"""
@@ -788,11 +784,11 @@ def main(path_img_generated=None):
     
     # Compare methods with GPU-accelerated processing
     print("Starting analysis of image directories...")
-    comparison_results = analyzer.compare_methods(real_dir, method_dirs)
+    comparison_results = analyzer.compare_methods(real_dir, paths_dict_img_generated)
     
     # Plot spectral analysis
     print("Generating spectral analysis plot...")
-    analyzer.plot_spectral_analysis(comparison_results, save_path='./figures/spectral_analysis.pdf')
+    analyzer.plot_spectral_analysis(comparison_results, save_path=os.path.join(figures_path,'spectral_analysis.pdf'))
     
     # Create wavelet energy table
     wavelet_table = analyzer.create_wavelet_energy_table(comparison_results)
@@ -800,27 +796,27 @@ def main(path_img_generated=None):
     print(wavelet_table)
     
     # Save the table
-    wavelet_table.to_csv('./results/wavelet_energy.csv', index=False)
+    wavelet_table.to_csv(os.path.join(results_path,'wavelet_energy.csv'), index=False)
     
     # Print percentage comparisons for paper - only if methods are available
     real_ratio = comparison_results['real_results']['wavelet_metrics']['energy_ratio']
     wald_ratio = comparison_results['method_results']['WALD']['wavelet_metrics']['energy_ratio']
     
-    # Check if LDM and YODA methods are in the results
-    print(f"\nPercentage Comparisons:")
-    if 'LDM' in comparison_results['method_results']:
-        ldm_ratio = comparison_results['method_results']['LDM']['wavelet_metrics']['energy_ratio']
-        wald_vs_ldm = (wald_ratio / ldm_ratio - 1) * 100 if ldm_ratio > 0 else 0
-        print(f"WALD preserves {wald_vs_ldm:.1f}% more high-frequency energy compared to LDM")
-    else:
-        print("LDM method not available for comparison")
+    # # Check if LDM and YODA methods are in the results
+    # print(f"\nPercentage Comparisons:")
+    # if 'LDM' in comparison_results['method_results']:
+    #     ldm_ratio = comparison_results['method_results']['LDM']['wavelet_metrics']['energy_ratio']
+    #     wald_vs_ldm = (wald_ratio / ldm_ratio - 1) * 100 if ldm_ratio > 0 else 0
+    #     print(f"WALD preserves {wald_vs_ldm:.1f}% more high-frequency energy compared to LDM")
+    # else:
+    #     print("LDM method not available for comparison")
         
-    if 'YODA' in comparison_results['method_results']:
-        yoda_ratio = comparison_results['method_results']['YODA']['wavelet_metrics']['energy_ratio']
-        wald_vs_yoda = (wald_ratio / yoda_ratio - 1) * 100 if yoda_ratio > 0 else 0
-        print(f"WALD preserves {wald_vs_yoda:.1f}% more high-frequency energy compared to YODA")
-    else:
-        print("YODA method not available for comparison")
+    # if 'YODA' in comparison_results['method_results']:
+    #     yoda_ratio = comparison_results['method_results']['YODA']['wavelet_metrics']['energy_ratio']
+    #     wald_vs_yoda = (wald_ratio / yoda_ratio - 1) * 100 if yoda_ratio > 0 else 0
+    #     print(f"WALD preserves {wald_vs_yoda:.1f}% more high-frequency energy compared to YODA")
+    # else:
+    #     print("YODA method not available for comparison")
     
     # Print PSD similarity metrics
     print("\nPSD Similarity Metrics (lower is better):")
@@ -835,8 +831,20 @@ def main(path_img_generated=None):
     print("Note: For a complete perceptual analysis, consider implementing LPIPS or MS-SSIM")
     print("These metrics would provide better correlation with human perception")
     
-    print("\nAnalysis complete! Results saved to ./figures/ and ./results/ directories.")
+    print("\nAnalysis complete! Results saved to figures/ and results/ directories.")
 
 
 if __name__ == "__main__":
-    main()
+        
+    method_dirs = {
+        'WALD': "/mnt/share/Luigi/Documents/URAE/src/output/URAE_VAE_SE_WAV_ATT_LAION",
+        # 'LDM': './data/ldm_images',
+        # 'YODA': './data/yoda_images',
+        'URAE': '/mnt/share/Luigi/Documents/URAE/src/output/URAE_original_trained_by_me'
+    }
+
+    real_dir = "/mnt/share/Luigi/Documents/URAE/dataset/laion_high_resolution_images"    
+    main(
+        method_dirs,
+        real_dir
+    )
