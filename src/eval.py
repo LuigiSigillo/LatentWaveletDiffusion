@@ -272,18 +272,22 @@ def calculate_lpips(dist_path, ref_path):
     dist_images = []
     ref_images = []
     
-    # Collect distorted images
-    for root, _, files in os.walk(dist_path):
-        for filename in files:
-            if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff')):
-                dist_images.append(os.path.join(root, filename))
-    
-    # Collect reference images
-    for root, _, files in os.walk(ref_path):
-        for filename in files:
-            if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff')):
-                ref_images.append(os.path.join(root, filename))
-    
+    if isinstance(dist_path, str):
+        # Collect distorted images
+        for root, _, files in os.walk(dist_path):
+            for filename in files:
+                if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff')):
+                    dist_images.append(os.path.join(root, filename))
+        
+        # Collect reference images
+        for root, _, files in os.walk(ref_path):
+            for filename in files:
+                if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff')):
+                    ref_images.append(os.path.join(root, filename))
+    else:
+        # If dist_path is not a string, assume it's a list of images
+        dist_images = dist_path
+        ref_images = ref_path   
     # Sort images to ensure consistent pairing
     dist_images.sort()
     ref_images.sort()

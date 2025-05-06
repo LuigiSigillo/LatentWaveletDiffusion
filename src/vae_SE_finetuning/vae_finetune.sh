@@ -1,15 +1,16 @@
 export CUDA_VISIBLE_DEVICES=0
-export VAE_MODEL_NAME="vae_normal_512"
+export VAE_MODEL_NAME="vae_SE_SD3_512"
 
 python vae_finetune_diffusability.py \
-  --pretrained_model_name_or_path "black-forest-labs/FLUX.1-dev" \
+  --pretrained_model_name_or_path "stabilityai/stable-diffusion-3-medium-diffusers" \
   --subfolder "vae" \
-  --data_dir /mnt/share/Luigi/Documents/URAE/dataset/laion_high_resolution_images \
+  --data_dir /leonardo_scratch/large/userexternal/lsigillo/laion_high_res_images_2K/ \
   --output_dir ./ckpt/$VAE_MODEL_NAME \
   --image_size 512 \
-  --batch_size 3 \
+  --batch_size 5 \
   --num_train_epochs 200 \
   --with_tracking \
   --max_train_steps 60000 \
-  --regularization_alpha 0 \
-  --lpips_weight 0.05
+  --regularization_alpha 0.25 \
+  --lpips_weight 0.05 \
+  --cache_dir $SCRATCH
