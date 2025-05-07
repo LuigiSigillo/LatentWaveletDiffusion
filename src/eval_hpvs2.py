@@ -492,20 +492,3 @@ if __name__ == "__main__":
 
     # # Print the average
     # print(f"Overall average score: {average_score:.4f}")
-
-    import torch
-    from diffusers import StableDiffusion3Pipeline
-
-    pipe = StableDiffusion3Pipeline.from_pretrained("stabilityai/stable-diffusion-3.5-large", 
-                                            cache_dir=args.cache_dir,
-                                            torch_dtype=torch.bfloat16)
-    pipe = pipe.to("cuda")
-
-    image = pipe(
-        "A capybara holding a sign that reads Hello World",
-        num_inference_steps=28,
-        guidance_scale=3.5,
-        width=2048,
-        height=2048,
-    ).images[0]
-    image.save("capybara.png")

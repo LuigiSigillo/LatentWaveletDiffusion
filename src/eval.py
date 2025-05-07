@@ -127,6 +127,9 @@ def generate_images(root_path_proj, checkpoint_path,device_str, height=2048, wid
         print(output_dir)
         os.makedirs(output_dir, exist_ok=True)
         for idx, prompt in tqdm(enumerate(prompts), total=len(prompts), desc=f"Generating {style} images"):
+            if os.path.join(root_path_proj,"src","output",name_exp, style, f"{idx:05d}.jpg") in os.listdir(os.path.join(root_path_proj,"src","output",name_exp, style)):
+                print(f"Image {idx:05d}.jpg already exists. Skipping.")
+                continue
             # image = TextToImageModel(prompt)
             image = pipe(
                 prompt,
@@ -143,8 +146,7 @@ def generate_images(root_path_proj, checkpoint_path,device_str, height=2048, wid
             image.save(os.path.join(root_path_proj,"src","output",name_exp, style, f"{idx:05d}.jpg")) 
             # <image_path> is the folder path to store generated images, as the input of hpsv2.evaluate().
 
-    hps2 = hpsv2.evaluate("output/"+checkpoint_path.split("/")[-2],
-            device=device) 
+    hps2 = hpsv2.evaluate("output/"+checkpoint_path.split("/")[-2]) 
     return hps2
 
 
@@ -236,7 +238,7 @@ def parse_arguments():
     parser.add_argument('--seed', type=int, default=8888,
                        help='Random seed for generation')
     parser.add_argument('--cache_dir', type=str, default=None,
-                       help='')
+                       help='/leonardo_scratch/large/userexternal/lsigillo')
     # Evaluation options
     parser.add_argument('--evaluate', action='store_true',
                        help='Evaluate image quality')
@@ -385,11 +387,17 @@ if __name__ == "__main__":
         print(pyiqa.list_models())
         exit(0)
     
+    
+    #remove
+    root_path_proj = "/leonardo_work/IscrC_UniMod/luigi/urae/"
+    
+    
     # Derive paths from checkpoint
     checkpoint_path = args.checkpoint
     name_exp = checkpoint_path.split("/")[-2]
-    root_path_proj = os.path.abspath(os.getcwd())
+    # root_path_proj = os.path.abspath(os.getcwd())
     generated_path = os.path.join(root_path_proj,"src",f"output/{name_exp}/HPDv2")
+    
     print(f"Generated images will be saved to: {generated_path}")
     
     # Get available GPU IDs

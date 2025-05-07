@@ -13,7 +13,11 @@ from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
 from torchvision.datasets import ImageFolder
 from torchvision.utils import save_image
-from diffusers import AutoencoderKL, AutoencoderDC
+
+# from diffusers import AutoencoderKL
+from autoencoder_kl_diffusion4k import AutoencoderKL
+
+from diffusers import AutoencoderDC
 from diffusers.optimization import get_scheduler
 from accelerate import Accelerator
 import wandb
