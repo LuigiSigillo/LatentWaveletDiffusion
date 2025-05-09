@@ -16,9 +16,9 @@ import multiprocessing
 # Set HF_HOME and TRANSFORMERS_CACHE environment variables
 def set_hf_cache_dir(cache_dir):
     if cache_dir:
-        os.environ["HF_HOME"] = cache_dir
+        os.system(f"export HF_HOME={cache_dir}")
         #also the torch cache when downloading the model
-        os.environ["TORCH_HOME"] = cache_dir
+        os.system(f"export TORCH_HOME={cache_dir}")
         print(f"Set Huggingface and torch cache to: {cache_dir}")
 
 def evaluate_image_quality(metric_name, dist_path, ref_path=None, dataset_name=None, dataset_res=None, dataset_split=None):
@@ -306,7 +306,7 @@ def calculate_lpips(dist_path, ref_path):
             self.dist_images = dist_images
             self.ref_images = ref_images
             self.transform = transforms.Compose([
-                transforms.Resize((1024, 1024)),
+                transforms.Resize((512, 512)),
                 transforms.ToTensor(),
             ])
         
@@ -353,15 +353,20 @@ def calculate_lpips(dist_path, ref_path):
     batch_count = 0
     
     try:
-        for (img1, img2) in tqdm(dataloader):
-            # Validate shapes before computing metric
-            if img1.shape != img2.shape:
-                print(f"Warning: Shape mismatch detected: {img1.shape} vs {img2.shape}")
-                continue
+        with tqdm(dataloader, desc="Calculating LPIPS") as pbar:
+            for (img1, img2) in pbar:
+                # Validate shapes before computing metric
+                if img1.shape != img2.shape:
+                    print(f"Warning: Shape mismatch detected: {img1.shape} vs {img2.shape}")
+                    continue
+                    
+                batch_score = learned_perceptual_image_patch_similarity(img1, img2, net_type='vgg', normalize=True)
+                total_score += batch_score
+                batch_count += 1
                 
-            batch_score = learned_perceptual_image_patch_similarity(img1, img2, net_type='squeeze', normalize=True)
-            total_score += batch_score
-            batch_count += 1
+                # Update tqdm description with the current LPIPS value
+                current_lpips = total_score / batch_count if batch_count > 0 else 0
+                pbar.set_description(f"Lpips at the moment: {current_lpips:.4f}")
     except Exception as e:
         print(f"Error during LPIPS calculation: {e}")
         # Print the shapes of tensors for debugging
@@ -389,13 +394,13 @@ if __name__ == "__main__":
     
     
     #remove
-    root_path_proj = "/leonardo_work/IscrC_UniMod/luigi/urae/"
+    # root_path_proj = "/leonardo_work/IscrC_UniMod/luigi/urae/"
     
     
     # Derive paths from checkpoint
     checkpoint_path = args.checkpoint
     name_exp = checkpoint_path.split("/")[-2]
-    # root_path_proj = os.path.abspath(os.getcwd())
+    root_path_proj = os.path.abspath(os.getcwd())
     generated_path = os.path.join(root_path_proj,"src",f"output/{name_exp}/HPDv2")
     
     print(f"Generated images will be saved to: {generated_path}")

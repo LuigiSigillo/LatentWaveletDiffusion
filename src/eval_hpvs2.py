@@ -98,16 +98,15 @@ def calculate_lpips_for_all(generated_folder, reference_folder):
     """
 
     # Get all generated and reference images
-    generated_images = sorted(glob(os.path.join(generated_folder, "**", "*.jpg"), recursive=True))
-    reference_images = sorted(glob(os.path.join(reference_folder, "*.jpg")))
+    # generated_images = sorted(glob(os.path.join(generated_folder, "**", "*.jpg"), recursive=True))
+    # reference_images = sorted(glob(os.path.join(reference_folder, "*.jpg")))
 
     # Match the number of reference images to the generated images if needed
-    if len(reference_images) > len(generated_images):
-        reference_images = random.sample(reference_images, len(generated_images))
+    # if len(reference_images) > len(generated_images):
+    #     reference_images = random.sample(reference_images, len(generated_images))
 
     # Compute LPIPS for all images
-    lpips_scores = []
-    calculate_lpips(generated_images, reference_images)
+    avg_lpips = calculate_lpips(generated_folder, reference_folder)
     avg_lpips = print(f"LPIPS score for all generated subfolders against all reference images: {avg_lpips:.4f}")
     return avg_lpips
 
@@ -158,7 +157,7 @@ def pickScore_calc_probs(prompt, images, device, processor,model):
     
     return probs.cpu().tolist()
 
-def calculate_average_pickscore_from_prompts(all_prompts, output_dir):
+def calculate_average_pickscore_from_prompts(all_prompts, output_dir, cache_dir):
     """
     Iterates over styles and their prompts, calculates PickScore for each image-prompt pair,
     and computes the average score for each style.
@@ -171,13 +170,13 @@ def calculate_average_pickscore_from_prompts(all_prompts, output_dir):
         dict: A dictionary with style names as keys and their average scores as values.
     """
     results = {}
-        # load model
-    device = "cuda"
+    # load model
+    device = "cuda" 
     processor_name_or_path = "laion/CLIP-ViT-H-14-laion2B-s32B-b79K"
     model_pretrained_name_or_path = "yuvalkirstain/PickScore_v1"
 
-    processor = AutoProcessor.from_pretrained(processor_name_or_path, cache_dir="/leonardo_scratch/large/userexternal/lsigillo/")
-    model = AutoModel.from_pretrained(model_pretrained_name_or_path, cache_dir="/leonardo_scratch/large/userexternal/lsigillo/").eval().to(device)
+    processor = AutoProcessor.from_pretrained(processor_name_or_path, cache_dir=cache_dir)
+    model = AutoModel.from_pretrained(model_pretrained_name_or_path, cache_dir=cache_dir).eval().to(device)
 
     for style, prompts in tqdm(all_prompts.items(), total=len(all_prompts), desc="Calculating PickScores"):
         style_dir = os.path.join(output_dir, style)
@@ -480,15 +479,14 @@ if __name__ == "__main__":
     # calculate_fid_and_lpips(generated_folder, args.reference_folder_hpdv2, compute_fid=False, compute_lpips=True)
 
     # # Compute FID for all generated subfolders against all reference images
-    # calculate_fid_for_all(generated_folder, args.reference_folder_hpdv2)
+    # calculate_fid_for_all(args.generated_folder_hpdv2, args.reference_folder_hpdv2)
 
     # # Compute LPIPS for all generated subfolders against all reference images
-    # calculate_lpips_for_all(generated_folder, args.reference_folder_hpdv2)
-    # all_prompts = hpsv2.benchmark_prompts('all')
-    # average_scores = calculate_average_pickscore_from_prompts(all_prompts, generated_folder)
-    # print("Average scores for all subfolders:", average_scores)
+    # calculate_lpips_for_all(args.generated_folder_hpdv2, args.reference_folder_hpdv2)
+    all_prompts = hpsv2.benchmark_prompts('all')
+    average_scores = calculate_average_pickscore_from_prompts(all_prompts, args.generated_folder_hpdv2, args.cache_dir)
+    print("Average scores for all subfolders:", average_scores)
     # # Calculate the average
-    # average_score = np.mean(list(average_scores.values()))
-
+    average_score = np.mean(list(average_scores.values()))
     # # Print the average
-    # print(f"Overall average score: {average_score:.4f}")
+    print(f"Overall average score: {average_score:.4f}")

@@ -217,6 +217,9 @@ def generate_images_for_style(style, prompts, device_id, root_path_proj, checkpo
     gen_seed = torch.manual_seed(seed=seed)
     print(f"STARTING images for style: {style} on device {device_id}")
     for idx, prompt in tqdm(enumerate(prompts), total=len(prompts), desc=f"Generating {style} images, with device {device_id}"):
+        if os.path.join(f"{idx:05d}.jpg") in os.listdir(os.path.join(root_path_proj, "src", "output", name_exp, style)):
+            print(f"Image {idx:05d}.jpg already exists. Skipping.")
+            continue
         image = pipe(
             prompt,
             height=height,

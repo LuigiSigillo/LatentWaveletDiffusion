@@ -160,6 +160,7 @@ def main():
         subfolder=args.subfolder,
         revision=args.revision,
         cache_dir=args.cache_dir,
+        stride=2, #only for diffusion4k
     ) if not "Sana" in args.pretrained_model_name_or_path else \
         AutoencoderDC.from_pretrained(
         args.pretrained_model_name_or_path,

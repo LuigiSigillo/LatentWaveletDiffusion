@@ -13,5 +13,6 @@ python vae_finetune_diffusability.py \
   --regularization_alpha 0.25 \
   --lpips_weight 0.05 \
   --cache_dir /leonardo_scratch/large/userexternal/lsigillo \
-  --data_dir /leonardo_scratch/large/userexternal/lsigillo/Aesthetic-4K/train/
+  --data_dir /leonardo_scratch/large/userexternal/lsigillo/Aesthetic-4K/train/ \
+  --resume_from_checkpoint "latest"
   # --data_dir /leonardo_scratch/large/userexternal/lsigillo/laion_high_res_images_2K/ \

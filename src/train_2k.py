@@ -150,7 +150,7 @@ def parse_args(input_args=None):
     parser.add_argument(
         "--visualize_every",
         type=int,
-        default=200
+        default=500
     )
     parser.add_argument(
         "--checkpointing_steps",
@@ -347,7 +347,12 @@ def parse_args(input_args=None):
         action="store_true",
         help="Whether or not to use wavelet attention.",
     )
-
+    parser.add_argument(
+        "--wav_att_l_mask",
+        type=float,
+        default=0.1,
+        help="l_mask value for wavelet attention.",
+    )
     if input_args is not None:
         args = parser.parse_args(input_args)
     else:
@@ -825,7 +830,7 @@ def main(args):
                 if args.wavelet_attention:
                     A = compute_wavelet_attention(noisy_model_input, dwt)  # shape: (B, H, W)
                     # M = get_mask_batch(A, l=0.1, T=noise_scheduler.config.num_train_timesteps, timesteps=indices)
-                    M = get_mask_batch(A, l=0.1, T=noise_scheduler.config.num_train_timesteps, timesteps=timesteps)
+                    M = get_mask_batch(A, l=args.wav_att_l_mask, T=noise_scheduler.config.num_train_timesteps, timesteps=timesteps)
                     # print("indices:", indices[:5])
                     # print("timesteps:", timesteps[:5])
                     # print("scheduler.timesteps:", noise_scheduler.timesteps[:10])

@@ -769,8 +769,8 @@ def main(paths_dict_img_generated, real_dir=None):
 
 if __name__ == "__main__":
     method_dirs = {
-        'WALD': "/mnt/share/Luigi/Documents/URAE/src/output/URAE_VAE_SE_WAV_ATT_LAION",
-        'URAE': '/mnt/share/Luigi/Documents/URAE/src/output/URAE_original_trained_by_me'
+        'WALD': "/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/output/URAE_VAE_SE_WAV_ATT_LAION/HPDv2_test_set",
+        'URAE': '/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/output/URAE_original_trained_by_me/HPDv2_test_set'
     }
-    real_dir = "/mnt/share/Luigi/Documents/URAE/dataset/laion_high_resolution_images"
+    real_dir = "/leonardo_scratch/large/userexternal/lsigillo/HPDv2/test"
     main(method_dirs, real_dir)
