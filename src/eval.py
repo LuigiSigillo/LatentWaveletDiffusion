@@ -150,7 +150,7 @@ def generate_images(root_path_proj, checkpoint_path,device_str, height=2048, wid
     return hps2
 
 
-def generate_images_for_style(style, prompts, device_id, root_path_proj, checkpoint_path, height, width, seed, cache_dir):
+def generate_images_for_style(style, prompts, device_id, generated_path, checkpoint_path, height, width, seed, cache_dir):
     # os.environ["CUDA_VISIBLE_DEVICES"] = str(device_id)  # Assign specific GPU
     device = torch.device("cuda:"+str(device_id))
     dtype = torch.bfloat16
@@ -166,15 +166,20 @@ def generate_images_for_style(style, prompts, device_id, root_path_proj, checkpo
     # Load LoRA weights
     pipe.load_lora_weights(checkpoint_path)
     pipe = pipe.to(device)
-
+    print("generated path inside the function", generated_path, "with style", style) 
     # Set up output directory
-    name_exp = checkpoint_path.split("/")[-2]
-    output_dir = os.path.join(root_path_proj, "src", "output", name_exp, style)
+    # name_exp = checkpoint_path.split("/")[-2]
+    output_dir = os.path.join(generated_path, style)
+    print("generating images in  ",output_dir)
     os.makedirs(output_dir, exist_ok=True)
 
     # Generate images for the given style
     gen_seed = torch.manual_seed(seed=seed)
     for idx, prompt in tqdm(enumerate(prompts), total=len(prompts), desc=f"Generating {style} images"):
+        #check if image already exists then skip
+        if os.path.join(generated_path, style, f"{idx:05d}.jpg") in os.listdir(os.path.join(generated_path, style)):
+            print(f"Image {idx:05d}.jpg already exists. Skipping.")
+            continue
         image = pipe(
             prompt,
             height=height,
@@ -188,7 +193,7 @@ def generate_images_for_style(style, prompts, device_id, root_path_proj, checkpo
         ).images[0]
         image.save(os.path.join(output_dir, f"{idx:05d}.jpg"))
 
-def parallel_generate_images(root_path_proj, checkpoint_path, device_ids, height=2048, width=2048, seed=888, cache_dir=None):
+def parallel_generate_images(generated_path, checkpoint_path, device_ids, height=2048, width=2048, seed=888, cache_dir=None):
     # Get benchmark prompts
     all_prompts = hpsv2.benchmark_prompts('all')
     styles = list(all_prompts.keys())
@@ -199,7 +204,7 @@ def parallel_generate_images(root_path_proj, checkpoint_path, device_ids, height
             prompts = all_prompts[style]
             device_id = device_ids[0]  # Use the single available GPU
             generate_images_for_style(
-                style, prompts, device_id, root_path_proj, checkpoint_path, height, width, seed, cache_dir
+                style, prompts, device_id, generated_path, checkpoint_path, height, width, seed, cache_dir
             )
     else:
         # Create a process for each style, assigning GPUs in a round-robin fashion
@@ -207,9 +212,10 @@ def parallel_generate_images(root_path_proj, checkpoint_path, device_ids, height
         for i, style in enumerate(styles):
             prompts = all_prompts[style]
             device_id = device_ids[i] 
+            print("Launching images for style:", style, "with genereted path", generated_path)
             p = multiprocessing.Process(
                 target=generate_images_for_style,
-                args=(style, prompts, device_id, root_path_proj, checkpoint_path, height, width, seed, cache_dir)
+                args=(style, prompts, device_id, generated_path, checkpoint_path, height, width, seed, cache_dir)
             )
             processes.append(p)
             p.start()
@@ -401,7 +407,7 @@ if __name__ == "__main__":
     checkpoint_path = args.checkpoint
     name_exp = checkpoint_path.split("/")[-2]
     root_path_proj = os.path.abspath(os.getcwd())
-    generated_path = os.path.join(root_path_proj,"src",f"output/{name_exp}/HPDv2")
+    generated_path = os.path.join(root_path_proj,"src","output",name_exp,"HPDv2")
     
     print(f"Generated images will be saved to: {generated_path}")
     
@@ -429,7 +435,7 @@ if __name__ == "__main__":
     if args.generate:
         print(f"Generating images using checkpoint: {args.checkpoint}")
         hps2_score = parallel_generate_images(
-            root_path_proj,
+            generated_path,
             args.checkpoint,
             device_ids,  # Pass the dynamically detected GPU IDs
             height=args.height,

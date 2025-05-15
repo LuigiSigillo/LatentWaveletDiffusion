@@ -1,13 +1,14 @@
 #!/bin/sh
-#SBATCH -A IscrC_NeuroGen
+#SBATCH -A IscrC_UniMod
 #SBATCH -p boost_usr_prod
-#SBATCH --time=23:00:00      
+#SBATCH --time=23:50:00      
 #SBATCH --nodes=1            
 #SBATCH --ntasks-per-node=1    
 #SBATCH --gres=gpu:4          
 #SBATCH --cpus-per-task=16      
-#SBATCH --job-name=train_SE_2k
+#SBATCH --job-name=urae_train_wald_2048_se
 #SBATCH --mem=256G
+#SBATCH --dependency=afterany:15766615
 echo "NODELIST="${SLURM_NODELIST}
 
 cd /leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav
@@ -19,11 +20,13 @@ export http_proxy=http://login07:3168
 export https_proxy=http://login07:3168
 
 export MODEL_NAME="black-forest-labs/FLUX.1-dev"
-export VAE_MODEL_NAME="/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/vae_SE_finetuning/ckpt/VAE_SE/checkpoint-60000"
+#export VAE_MODEL_NAME="/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/vae_SE_finetuning/ckpt/VAE_SE/checkpoint-60000"
+export VAE_MODEL_NAME="/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/vae_SE_finetuning/ckpt/vae_SE_FLUX_512/checkpoint-60000"
 export DATA_DIR="/leonardo_scratch/large/userexternal/lsigillo/laion_high_res_images_2K"
-export LATENT_CODE_DIR="/leonardo_scratch/large/userexternal/lsigillo/LAION_se_latents_2048"
+export LATENT_CODE_DIR="/leonardo_scratch/large/userexternal/lsigillo/laion_se_latents_2048"
+#export LATENT_CODE_DIR="/leonardo_scratch/large/userexternal/lsigillo/laion_se_latents_2560"
 
-export OUTPUT_DIR="/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ckpt/URAE_VAE_SE_WAV_ATT_LAION_2048"
+export OUTPUT_DIR="/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ckpt/l_03_URAE_LAION_2048_SE_AEST"
 
 
 export PRECISION="bf16"
@@ -48,6 +51,7 @@ MASTER_PORT=$MASTER_PORT accelerate launch --main_process_port $MASTER_PORT --nu
   --checkpointing_steps=1000 \
   --gradient_checkpointing \
   --wavelet_attention \
+  --wav_att_l_mask=0.3 \
   --cache_dir=$SCRATCH \
   --latent_code_dir=$LATENT_CODE_DIR \
   --pretrained_vae_path=$VAE_MODEL_NAME \

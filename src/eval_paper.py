@@ -77,7 +77,7 @@ prompts_comp_diff4k = [
     
     "A curvy timber house near a sea, designed by Zaha Hadid, represent the image of a cold, modern architecture, at night, white lighting, highly detailed.",
     
-    "a cyberpunk cat with a neon sign that says \"WALD\"",
+    "a cyberpunk cat with a neon sign that says \"LWD\"",
     
     "A very detailed and realistic full body photo set of a tall, slim, and athletic Shiba Inu in a white oversized straight t-shirt, white shorts, and short white shoes.",
     
@@ -86,36 +86,8 @@ prompts_comp_diff4k = [
     "a stunning and luxurious bedroom carved into a rocky mountainside seamlessly blending nature with modern design with a plush earth-toned bed textured stone walls circular fireplace massive uniquely shaped window framing snow-capped mountains dense forests"
 ]
 
-prompts_naples = [
-            "A breathtaking view of the Gulf of Naples at sunset, with Mount Vesuvius in the background and the city lights reflecting on the water.",
-            "A narrow and picturesque alley in the historic center of Naples, with laundry hanging out to dry between flower-filled balconies and the inviting aroma of freshly baked pizza in the air.",
-            "A steaming Margherita pizza, with Buffalo Mozzarella DOP from Campania, San Marzano tomatoes, and fresh basil, on a table in a typical Neapolitan trattoria.",
-            "A hyperrealistic image of the Veiled Christ in the Sansevero Chapel, with its marble sculpture appearing to breathe beneath the transparent veil.",
-            "A festive crowd in Piazza del Plebiscito during the Feast of San Gennaro, with the procession of the saint's bust and the anticipation of the miracle of the liquefaction of the blood.",
-            "An explosion of colors and scents at the Porta Nolana market, with stalls overflowing with fruits, vegetables, fresh fish, and exotic spices.",
-            "An abstract image inspired by the shapes and colors of the Naples Metro, with its art stations and mosaics that tell the city's history.",
-            "A stylized portrait of Pulcinella, the quintessential Neapolitan mask, with his white hat, black mask, and a mischievous and carefree air.",
-            "An aerial view of Castel dell'Ovo, with its distinctive shape and its striking location on the islet of Megaride.",
-            "An artistic interpretation of a 'sfogliatella riccia', with its shell-like shape, crispy layered pastry, and creamy filling of ricotta cheese and candied fruit.",
-            "A hyperrealistic image of the SSC Napoli logo, with its distinctive 'N' and blue color, surrounded by a dynamic, swirling vortex of blue smoke and light, evoking the team's energy and passion.",
-            "A wide, panoramic view of the Stadio Diego Armando Maradona, formerly San Paolo, during a night match, filled with cheering fans, flares, and banners in the team's colors.",
-            "A stylized portrait of Diego Armando Maradona in his prime, wearing the SSC Napoli jersey, with a halo of golden light symbolizing his legendary status in the city.",
-            "A close-up, dramatic shot of a group of SSC Napoli ultras, their faces painted in the team's colors, holding up a massive banner with a powerful message of support, in a dimly lit, atmospheric setting.",
-            "An abstract image representing the sound of the SSC Napoli anthem being sung by thousands of fans, visualized as vibrant, swirling patterns of blue and white, with dynamic lines and shapes.",
-            "A detailed, realistic depiction of the SSC Napoli jersey, with its iconic blue color and sponsor logos, hanging in a locker room, with a sense of anticipation and excitement before a big match.",
-            "A conceptual image showing the city of Naples rising up to cheer on SSC Napoli, with buildings and streets morphing into cheering fans, all bathed in a blue light.",
-            "A fantastical scene depicting the SSC Napoli mascot, the donkey, as a powerful, mythical creature, leading a charge of blue and white energy across a surreal, dreamlike landscape.",
-            "A macro shot of confetti in the SSC Napoli colors, blue and white, falling from the sky after a victory, creating a sense of celebration and joy.",
-            "An artistic representation of the bond between SSC Napoli and the city, with the team's colors and symbols interwoven into the fabric of the city's architecture and culture, creating a vibrant, dynamic tapestry.",
-            "A jubilant scene of SSC Napoli players lifting the Scudetto trophy, surrounded by fireworks and cheering fans at the Stadio Diego Armando Maradona.",
-            "A vibrant street in Naples, overflowing with celebrating fans, blue and white flags, and street art commemorating the Scudetto victory.",
-            "A close-up shot of a Napoli fan's face, filled with joy and tears, celebrating the Scudetto win.",
-            "An aerial view of Naples, with the city lit up in blue and white, showcasing the widespread celebrations after the Scudetto victory.",
-            "A powerful image of the city of Naples embracing the SSC Napoli team, symbolizing the deep connection between the club and its city after winning the Scudetto.",
-           
-        ]
-
-prompt_gemini = [ "A dreamlike landscape generated with intricate details: bioluminescent trees with leaves emitting a soft, pulsating light, reflected in a crystalline pond populated by translucent aquatic creatures. The scene is enveloped in an ethereal mist and illuminated by a moon with shifting hues.",
+prompt_gemini = [
+     "A dreamlike landscape generated with intricate details: bioluminescent trees with leaves emitting a soft, pulsating light, reflected in a crystalline pond populated by translucent aquatic creatures. The scene is enveloped in an ethereal mist and illuminated by a moon with shifting hues.",
             "Hyperrealistic representation of a futuristic organic sculpture, fused with finely detailed mechanical elements. The surface exhibits complex textures, with iridescent metallic reflections that capture a dynamic light source from an unseen origin. The background is a smooth gradient of complementary colors.",
             "A stylized portrait of a mystical entity, with an aura of vibrant energy emanating from its body. The facial details are enigmatic and profound, with eyes that glow with an intense inner light. Ethereal ornaments float around the figure, creating a sense of movement and magic.",
             "Visualization of a lush alien ecosystem, with plants of unexpected geometric shapes and saturated colors. Light filters through a dense canopy of exotic foliage, creating dramatic plays of shadows and light. Iridescent particles float in the air.",
@@ -126,19 +98,58 @@ prompt_gemini = [ "A dreamlike landscape generated with intricate details: biolu
             "Visualization of a sentient artificial intelligence in the form of an ethereal and luminous figure, surrounded by abstract data streams that intertwine like filaments of light. The figure's eyes express awareness and intellectual depth.",
             "Representation of a shimmering and unstable dimensional portal, opening onto a surreal and unknown landscape. The energy emanating from the portal distorts the surrounding space, creating unexpected optical effects and light refractions."]
 
+prompt_claude = [
+    "Hyperrealistic portrait of an elderly fisherman with weathered face, intricate wrinkles, and piercing blue eyes, dramatic studio lighting, 8k resolution",
+    
+    "Vibrant cyberpunk cityscape at night with neon signs, holographic advertisements, flying cars, and rain-slicked streets reflecting colorful lights",
+    
+    "Ethereal fantasy landscape with floating islands, giant luminescent crystals, waterfalls flowing into the sky, and exotic flora, painted in the style of Studio Ghibli",
+    
+    "Retro-futuristic space station interior with astronauts working among curved white panels, large viewports showing Earth, in the style of 1970s sci-fi concept art",
+    
+    "Photorealistic macro photography of an iridescent butterfly wing with water droplets, showing intricate scale patterns and prismatic color effects",
+    
+    "Surreal digital artwork of a melting clock hanging from a tree branch in a barren desert, inspired by Salvador Dali with modern 3D rendering techniques",
+    
+    "Anime-style character design of a young sorceress with flowing white hair, ornate magical staff, and elaborate costume with glowing arcane symbols",
+    
+    "Architectural concept visualization of a sustainable skyscraper with vertical gardens, solar panels, and biomorphic design elements, photorealistic rendering",
+    
+    "Abstract expressionist painting with dynamic brush strokes, vibrant complementary colors, and emotional intensity, in the style of Willem de Kooning",
+    
+    "Underwater scene of an ancient temple ruin covered in coral and seaweed, with schools of colorful fish and shafts of sunlight penetrating the water, photorealistic"
+]
+
+# Napoli-themed special prompts
+napoli_prompts = [
+    "Hyperrealistic panorama of Naples' skyline at sunset with Mount Vesuvius in the background, the azure Bay of Naples, and the historic city center with its characteristic architecture",
+    
+    "Artistic stylized illustration of Napoli football players celebrating a goal at Stadio Diego Armando Maradona, with passionate fans in blue jerseys creating a sea of color",
+    
+    "Photorealistic close-up of traditional Neapolitan pizza being prepared by a master pizzaiolo, with San Marzano tomatoes, buffalo mozzarella, and basil, wood-fired oven in the background",
+    
+    "Anime-style artwork featuring Napoli football players as heroic characters with dynamic poses, their blue uniforms transformed into stylized battle armor",
+    
+    "Surreal digital artwork merging Napoli's landmarks with football imagery: a gigantic football replacing Mount Vesuvius, Castel dell'Ovo floating on a blue jersey sea, and Diego Maradona's silhouette in the clouds"
+]
+
 list_of_checkpoints_flux_models_2k = [
     # "/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ckpt/URAE_VAE_SE_WAV_ATT_AESTHETIC_2K/checkpoint-2000", #HELP non funziona
     # "/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ckpt/URAE_VAE_SE_WAV_ATT_AESTHETIC_2048/checkpoint-2000", #help img non belle
-    
-    "/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ckpt/URAE_original_trained_by_me/checkpoint-2000",
-    "/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ckpt/URAE_VAE_SE_WAV_ATT_LAION/checkpoint-2000",
-    "/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ckpt/URAE_VAE_SE_WAV_ATT_LAION_2048/checkpoint-2000"
-]
+    # "/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ckpt/l_003_URAE_VAE_SE_WAV_ATT_LAION_2K/checkpoint-2000"
+    # "/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ckpt/URAE_original_trained_by_me/checkpoint-2000",
+    # "/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ckpt/URAE_VAE_SE_WAV_ATT_LAION/checkpoint-2000",
+    # "/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ckpt/URAE_VAE_SE_WAV_ATT_LAION_2048/checkpoint-2000"
+    "/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ckpt/l_003_URAE_VAE_SE_WAV_ATT_LAION_2560/checkpoint-4000",
+    "/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ckpt/l_003_URAE_VAE_NOOO_SE_WAV_ATT_LAION_2560/checkpoint-4000",
+    "/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ckpt/l_003_URAE_VAE_NOOO_SE_WAV_ATT_LAION_2048/checkpoint-6000"
+    ]
 
 list_of_checkpoints_flux_models_4k = [  
-    "/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ckpt/4K_URAE_VAE_SE_WAV_ATT_LAION_4096/checkpoint-2000/adapter_weights.safetensors",
+    # "/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ckpt/4K_URAE_VAE_SE_WAV_ATT_LAION_4096/checkpoint-2000/adapter_weights.safetensors",
     # "/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ckpt/4K_URAE_VAE_SE_WAV_ATT_AESTHETIC_4096/checkpoint-2000/adapter_weights.safetensors",
 #    "/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ckpt/4K_urae_original/ckpt_xxx/urae_4k_adapter.safetensors", 
+    "/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ckpt/l_03_4K_URAE_VAE_SE_WAV_ATT_LAION_4096/checkpoint-2000/adapter_weights.safetensors",
     ]
 
 # Create a mapping of prompt lists to their names
@@ -146,8 +157,10 @@ prompt_list_names = {
     "prompts_URAE": prompts_URAE,
     "prompts_diff4k": prompts_diff4k,
     "prompts_comp_diff4k": prompts_comp_diff4k,
-    "prompts_naples": prompts_naples,
+    # "prompts_naples": prompts_naples,
     "prompts_gemini": prompt_gemini,
+    "prompts_claude": prompt_claude,
+    "napoli_prompts": napoli_prompts,
 }
 
 def get_pipe_2k(cache_dir = "/leonardo_scratch/large/userexternal/lsigillo", device_str = "cuda:0"):
@@ -193,6 +206,7 @@ def generate_images(pipe, list_of_checkpoints_flux_models,
             name_exp = checkpoint_path.split("/")[-2]
         
         # Get the name of the list from the mapping
+        
         curr_list = prompt_list_names[current_prompts]
         os.makedirs(os.path.join(output_dir, name_exp, f"paper_{current_prompts}"), exist_ok=True)
 

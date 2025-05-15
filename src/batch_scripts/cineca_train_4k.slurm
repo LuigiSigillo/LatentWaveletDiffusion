@@ -6,7 +6,7 @@
 #SBATCH --ntasks-per-node=1    
 #SBATCH --gres=gpu:4          
 #SBATCH --cpus-per-task=16      
-#SBATCH --job-name=train_SE_4k
+#SBATCH --job-name=urae_train_SE_4k
 #SBATCH --mem=400G
 echo "NODELIST="${SLURM_NODELIST}
 
@@ -15,19 +15,21 @@ cd /leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav
 # module load anaconda3
 source /leonardo_scratch/fast/IscrC_UniMod/luigi/miniconda3/etc/profile.d/conda.sh
 conda activate URAE
+module load gcc
+module load cuda
 export http_proxy=http://login07:3168
 export https_proxy=http://login07:3168
 
 
 export MODEL_NAME="black-forest-labs/FLUX.1-dev"
 export VAE_MODEL_NAME="/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/vae_SE_finetuning/ckpt/VAE_SE/checkpoint-60000"
-export DATA_DIR="/leonardo_scratch/large/userexternal/lsigillo/Aesthetic-4K/train"
-export LATENT_CODE_DIR="/leonardo_scratch/large/userexternal/lsigillo/Aesthetic_se_latents_4096"
-export OUTPUT_DIR="/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ckpt/4K_URAE_VAE_SE_WAV_ATT_AESTHETIC_4096"
+#export DATA_DIR="/leonardo_scratch/large/userexternal/lsigillo/Aesthetic-4K/train"
+#export LATENT_CODE_DIR="/leonardo_scratch/large/userexternal/lsigillo/Aesthetic_se_latents_4096"
+#export OUTPUT_DIR="/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ckpt/4K_URAE_VAE_SE_WAV_ATT_AESTHETIC_4096"
 
-# export DATA_DIR="/leonardo_scratch/large/userexternal/lsigillo/laion_high_res_images_4K/"
-# export LATENT_CODE_DIR="/leonardo_scratch/large/userexternal/lsigillo/LAION_se_latents_4096"
-# export OUTPUT_DIR="/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ckpt/4K_URAE_VAE_SE_WAV_ATT_LAION_4096"
+export DATA_DIR="/leonardo_scratch/large/userexternal/lsigillo/laion_high_res_images_4K/"
+export LATENT_CODE_DIR="/leonardo_scratch/large/userexternal/lsigillo/LAION_se_latents_4096"
+export OUTPUT_DIR="/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ckpt/l_03_4K_URAE_VAE_SE_WAV_ATT_LAION_4096"
 
 export PRECISION="bf16"
 # export CUDA_VISIBLE_DEVICES=0,1,2,3
@@ -55,6 +57,7 @@ MASTER_PORT=$MASTER_PORT accelerate launch --main_process_port $MASTER_PORT --nu
   --proportional_attention \
   --pretrained_lora="src/ckpt/urae_2k_adapter.safetensors" \
   --wavelet_attention \
+  --wav_att_l_mask=0.3 \
   --cache_dir=$SCRATCH \
   --latent_code_dir=$LATENT_CODE_DIR \
   --pretrained_vae_path=$VAE_MODEL_NAME \

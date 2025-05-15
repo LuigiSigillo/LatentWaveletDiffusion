@@ -112,11 +112,80 @@ def calculate_lpips_for_all(generated_folder, reference_folder):
 
 def set_hf_cache_dir(cache_dir):
     if cache_dir:
-        os.environ["HF_HOME"] = cache_dir
+        #os.environ["HF_HOME"] = cache_dir
+        os.system("export HF_HOME=" + cache_dir)
         #also the torch cache when downloading the model
-        os.environ["TORCH_HOME"] = cache_dir
+        # os.environ["TORCH_HOME"] = cache_dir
+        os.system("export TORCH_HOME=" + cache_dir)
         print(f"Set Huggingface and torch cache to: {cache_dir}")
 
+
+def evaluate_image_quality(metric_name, dist_path, ref_path=None, dataset_name=None, dataset_res=None, dataset_split=None):
+    """
+    Evaluate image quality using specified metric.
+    
+    Args:
+        metric_name (str): Name of the metric to use (e.g., 'lpips', 'fid', 'maniqa', 'qualiclip')
+        dist_path (str): Path to distorted image or directory
+        ref_path (str, optional): Path to reference image or directory. Required for FR metrics.
+        dataset_name (str, optional): Dataset name for FID. Only used with FID metric.
+        dataset_res (int, optional): Dataset resolution for FID. Only used with FID metric.
+        dataset_split (str, optional): Dataset split for FID. Only used with FID metric.
+    
+    Returns:
+        float: Computed quality score
+    """
+    # Check if CUDA is available
+    device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+    print(f"Using device: {device}")
+    
+    # Create metric
+    iqa_metric = pyiqa.create_metric(metric_name, device=device)
+    
+    # Display if lower or higher score is better
+    print(f"Metric: {metric_name}, Lower is better: {iqa_metric.lower_better}")
+    
+    # Identify if the metric is no-reference (NR)
+    # nr_metrics = ['maniqa', 'qualiclip', 'niqe', 'brisque']
+    # is_nr_metric = metric_name.lower() in nr_metrics
+    
+    # # Compute score
+    # if metric_name.lower() == 'fid':
+    #     if ref_path is not None:
+    #         score = iqa_metric(dist_path, ref_path)
+    #         print(f"FID score between {dist_path} and {ref_path}: {score:.4f}")
+    #     elif dataset_name is not None:
+    #         score = iqa_metric(dist_path, dataset_name=dataset_name, 
+    #                          dataset_res=dataset_res, dataset_split=dataset_split)
+    #         print(f"FID score between {dist_path} and {dataset_name} ({dataset_res}px, {dataset_split}): {score:.4f}")
+    #     else:
+    #         raise ValueError("For FID metric, either ref_path or dataset_name must be provided")
+    # elif is_nr_metric:
+        # Handle no-reference metrics (MANIQA, QualiCLIP, etc.)
+    if os.path.isfile(dist_path):
+        score = iqa_metric(dist_path)
+        print(f"{metric_name} score for {dist_path}: {score:.4f}")
+    elif os.path.isdir(dist_path):
+        # Process all images in directory
+        total_score = 0
+        count = 0
+        for root, _, files in os.walk(dist_path):
+            for filename in tqdm(files):
+                if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tif', '.tiff')):
+                    img_path = os.path.join(root, filename)
+                    img_score = iqa_metric(img_path)
+                    # print(f"{metric_name} score for {img_path}: {img_score:.4f}")
+                    total_score += img_score
+                    count += 1
+        
+        if count == 0:
+            raise ValueError(f"No valid images found in directory {dist_path}")
+        
+        score = total_score / count
+        print(f"Average {metric_name} score for all images in {dist_path}: {score}")
+    else:
+        raise ValueError(f"Invalid path for {metric_name}: {dist_path}")
+    return score
 
 def pickScore_calc_probs(prompt, images, device, processor,model):
     # preprocess
@@ -181,7 +250,7 @@ def calculate_average_pickscore_from_prompts(all_prompts, output_dir, cache_dir)
     for style, prompts in tqdm(all_prompts.items(), total=len(all_prompts), desc="Calculating PickScores"):
         style_dir = os.path.join(output_dir, style)
         if not os.path.exists(style_dir):
-            print(f"Directory for style '{style}' not found, skipping...")
+            print(f"Directory {style_dir} for style '{style}' not found, skipping...")
             continue
 
         # Load images for the current style
@@ -446,6 +515,7 @@ if __name__ == "__main__":
     set_hf_cache_dir("/leonardo_scratch/large/userexternal/lsigillo/")
     
     parser = argparse.ArgumentParser(description="Generate images from JSON prompts")
+    parser.add_argument("--calculate_metrics", action="store_true", help="Calculate metrics for generated images")
     parser.add_argument("--json_file", type=str, default="/leonardo_scratch/large/userexternal/lsigillo/HPDv2/test.json", help="Path to the JSON file")
     parser.add_argument("--output_dir", type=str, help="Directory to save the generated images")
     parser.add_argument("--checkpoint_path", type=str, default="/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ckpt/URAE_VAE_SE_WAV_ATT_LAION/checkpoint-2000", help="Model ID from Hugging Face")
@@ -453,40 +523,54 @@ if __name__ == "__main__":
     parser.add_argument("--height", type=int, default=2048, help="Height of the generated images")
     parser.add_argument("--width", type=int, default=2048, help="Width of the generated images")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
-    parser.add_argument("--generated_folder_hpdv2", type=str, default="/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/output/URAE_VAE_SE_WAV_ATT_LAION", help="Path to the generated images folder")
-    parser.add_argument("--reference_folder_hpdv2", type=str, default="/leonardo_scratch/large/userexternal/lsigillo/HPDv2/test", help="Path to the reference images folder")
+    parser.add_argument("--generated_folder", type=str, default="/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/output/URAE_VAE_SE_WAV_ATT_LAION", help="Path to the generated images folder")
+    parser.add_argument("--reference_folder", type=str, default="/leonardo_scratch/large/userexternal/lsigillo/HPDv2/test", help="Path to the reference images folder")
+    parser.add_argument("--generate_hpdv2_testset", action="store_true", help="Generate images for HPDv2 test set")
     parser.add_argument("--prompt_folder_dpg", type=str, default="/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ELLA/dpg_bench/prompts", help="Path to the prompt folder")
+    parser.add_argument("--generate_dpg_testset", action="store_true", help="Generate images for DPG test set")
     args = parser.parse_args()
     gen_seed = torch.manual_seed(seed=args.seed)
     
-    # # GENERATE IMAGES HPDv2
-    # generate_images_from_prompts_parallel(args.json_file, os.path.join(args.output_dir,"HPDv2"), args.checkpoint_path, 
-    #                                     cache_dir="/leonardo_scratch/large/userexternal/lsigillo/",
-    #                                        height=2048, width=2048, gen_seed=gen_seed, dpg=False)   
-     
-    # # GENERATE IMAGES DPG
-    # output_dir_dpg = os.path.join(args.output_dir,"DPG")
-    # generate_images_from_prompts_parallel(args.prompt_folder_dpg, output_dir_dpg, 
-    #                                       args.checkpoint_path, args.cache_dir, gen_seed=gen_seed, dpg=True)   
-    
-    # os.system(f"bash /leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ELLA/dpg_bench/dist_eval.sh {output_dir_dpg} {2048}")
-    
-    
-    # generated_folder = args.checkpoint_path.replace("ckpt", "output")
-    # #replace the last part of the path with HPDv2
-    # generated_folder = os.path.join(os.path.dirname(generated_folder), "HPDv2")    # Check if the generated folder exists
-    # # Compute both FID and LPIPS
-    # calculate_fid_and_lpips(generated_folder, args.reference_folder_hpdv2, compute_fid=False, compute_lpips=True)
+    if args.generate_hpdv2_testset:
+        # GENERATE IMAGES HPDv2
+        generate_images_from_prompts_parallel(args.json_file, os.path.join(args.output_dir,"HPDv2"), 
+                                              args.checkpoint_path, 
+                                            cache_dir=args.cache_dir,
+                                            height=args.height, width=args.width, 
+                                            gen_seed=gen_seed, dpg=False)   
 
-    # # Compute FID for all generated subfolders against all reference images
-    # calculate_fid_for_all(args.generated_folder_hpdv2, args.reference_folder_hpdv2)
+    if args.generate_dpg_testset:    
+        # GENERATE IMAGES DPG
+        output_dir_dpg = os.path.join(args.output_dir,"DPG")
+        generate_images_from_prompts_parallel(args.prompt_folder_dpg, output_dir_dpg, 
+                                            args.checkpoint_path, args.cache_dir, gen_seed=gen_seed, dpg=True)   
+        
+        # os.system(f"bash /leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ELLA/dpg_bench/dist_eval.sh {output_dir_dpg} {2048}")
+    
+    if args.calculate_metrics:
+        # Compute FID for all generated subfolders against all reference images
+        calculate_fid_for_all(args.generated_folder, args.reference_folder)
+       
+        # calculate PICKSCORE for all generated subfolders against all reference images
+        all_prompts = hpsv2.benchmark_prompts('all')
+        average_scores = calculate_average_pickscore_from_prompts(all_prompts, args.generated_folder,
+                                                                   args.cache_dir)
+        print("PICKSCORE Average scores for all subfolders:", average_scores)
+        # # Calculate the average
+        average_score = np.mean(list(average_scores.values()))
+        # # Print the average
+        print(f"PICKSCORE Overall average score: {average_score:.4f}")
 
-    # # Compute LPIPS for all generated subfolders against all reference images
-    # calculate_lpips_for_all(args.generated_folder_hpdv2, args.reference_folder_hpdv2)
-    all_prompts = hpsv2.benchmark_prompts('all')
-    average_scores = calculate_average_pickscore_from_prompts(all_prompts, args.generated_folder_hpdv2, args.cache_dir)
-    print("Average scores for all subfolders:", average_scores)
-    # # Calculate the average
-    average_score = np.mean(list(average_scores.values()))
-    # # Print the average
-    print(f"Overall average score: {average_score:.4f}")
+        metrics = ["qualiclip", "maniqa"]
+        for metric in metrics:
+            # Run evaluation
+            score = evaluate_image_quality(
+                metric,
+                args.generated_folder,
+                ref_path=args.reference_folder,
+            )
+            print(f"Final {metric} score ", score)
+        
+        print(hpsv2.evaluate(args.generated_folder))
+        # # Compute LPIPS for all generated subfolders against all reference images
+        #calculate_lpips_for_all(args.generated_folder, args.reference_folder)

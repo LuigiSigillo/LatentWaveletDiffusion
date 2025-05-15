@@ -155,7 +155,7 @@ def plot_spectrums_flat(
 
     # Set up figure and colormap
     plt.figure(figsize=figsize)
-    colors = plt.cm.magma(np.linspace(0, 0.8, len(blocks_dict)))
+    colors = plt.cm.Accent(np.linspace(0, 0.8, len(blocks_dict)))
 
     # Iterate over dictionary items (label -> blocks_3d)
     for (label, blocks_3d), color in zip(blocks_dict.items(), colors):
@@ -412,15 +412,22 @@ from tqdm import tqdm
 import numpy as np
 
 def get_latents(model_path,device,
-                 n_samples=128, 
+                 n_samples=256, 
                  image_dir="/mnt/share/Luigi/Documents/URAE/dataset/laion_high_resolution_images",
                  image_size=256,
                  batch_size=16,
                  cache_dir=None):    
     # Load the base VAE model
-    model = AutoencoderKL.from_pretrained(model_path, subfolder="vae", cache_dir=cache_dir).to(device) if not "SANA" in model_path else \
-             AutoencoderDC.from_pretrained(
-                                        model_path, subfolder="vae", cache_dir=cache_dir).to(device)
+    if "SANA".lower() in model_path.lower():
+        model = AutoencoderDC.from_pretrained(model_path, subfolder="vae", cache_dir=cache_dir).to(device)
+    elif "SD3".lower() in model_path.lower() and "F16" in model_path:
+        model = AutoencoderKL.from_pretrained(model_path, subfolder="vae",
+                                               cache_dir=cache_dir,
+                                               stride=2
+                                               ).to(device)
+    else:
+        model = AutoencoderKL.from_pretrained(model_path, subfolder="vae", 
+                                            cache_dir=cache_dir).to(device)
     model.eval()
     
     # Find image paths
@@ -563,41 +570,60 @@ def load_latents(latents_path, latent_res: tuple[int]):
 
 device = "0"
 vae_flux_se_path = "/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/vae_SE_finetuning/ckpt/VAE_SE/checkpoint-60000"
-vae_flux_without_se_path = "/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/vae_SE_finetuning/ckpt/VAE/checkpoint-60000"
-vae_sd3_se_path = "/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/vae_SE_finetuning/ckpt/vae_SE_SD3_512_old/checkpoint-60000"
-vae_sd3_f16_se_path = "/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/vae_SE_finetuning/ckpt/vae_SE_SD3_512_F16/checkpoint-60000"
-vae_sd3_se_new_path = "/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/vae_SE_finetuning/ckpt/vae_SE_SD3_512_Notnew/checkpoint-60000"
+# vae_flux_without_se_path = "/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/vae_SE_finetuning/ckpt/VAE/checkpoint-60000"
+vae_flux_path = "black-forest-labs/FLUX.1-dev"
+
+vae_sd3_medium_f16_se_path = "/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/vae_SE_finetuning/ckpt/vae_SE_SD3_512_F16/checkpoint-60000"
+vae_sd3_medium_path = "stabilityai/stable-diffusion-3-medium-diffusers"
+vae_sd3_medium_se_path = "/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/vae_SE_finetuning/ckpt/vae_SE_SD3_512_Notnew/checkpoint-60000"
+
+vae_sd3_large_se_path = "/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/vae_SE_finetuning/ckpt/vae_SE_SD3L_512_F16/checkpoint-60000"
+vae_sd3_large_path = "stabilityai/stable-diffusion-3.5-large"
+
 vae_sana_se_path = "/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/vae_SE_finetuning/ckpt/vae_SE_SANA_512/checkpoint-60000"
+vae_sana_path = "Efficient-Large-Model/Sana_1600M_4Kpx_BF16_diffusers"
 image_size = 512
-batch_size = 16
+batch_size = 32
+block_size = 32
+
 latent_res = (1, 16, image_size//8, image_size//8) #torch.Size([16, 16, 32, 32])
 sana_latent_res = (1, 32, image_size//32, image_size//32) #torch.Size([16, 32, 8, 8])
-image_dir = "/leonardo_scratch/large/userexternal/lsigillo/laion_high_res_images_2K/"
+
+# image_dir = "/leonardo_scratch/large/userexternal/lsigillo/laion_high_res_images_2K/"
+image_dir = "/leonardo_scratch/large/userexternal/lsigillo/Aesthetic-4K/train/"
 cache_dir = "/leonardo_scratch/large/userexternal/lsigillo"
 
-latents_flux_without_se = np.concatenate([f.reshape(f.shape[0], *latent_res) for f in get_latents(vae_flux_without_se_path, f"cuda:{device}", image_size=image_size, batch_size=batch_size,image_dir=image_dir, cache_dir=cache_dir)['all_features']], axis=0)
+latents_flux_without_se = np.concatenate([f.reshape(f.shape[0], *latent_res) for f in get_latents(vae_flux_path, f"cuda:{device}", image_size=image_size, batch_size=batch_size,image_dir=image_dir, cache_dir=cache_dir)['all_features']], axis=0)
 latents_flux_with_se = np.concatenate([f.reshape(f.shape[0], *latent_res) for f in get_latents(vae_flux_se_path, f"cuda:{device}",image_size=image_size,batch_size=batch_size, image_dir=image_dir, cache_dir=cache_dir)['all_features']], axis=0)
 
-latents_sd3_se = np.concatenate([f.reshape(f.shape[0], *latent_res) for f in get_latents(vae_sd3_se_path, f"cuda:{device}",image_size=image_size,batch_size=batch_size, image_dir=image_dir, cache_dir=cache_dir)['all_features']], axis=0)
-latents_sd3_f16_se = np.concatenate([f.reshape(f.shape[0], *latent_res) for f in get_latents(vae_sd3_f16_se_path, f"cuda:{device}",image_size=image_size,batch_size=batch_size, image_dir=image_dir, cache_dir=cache_dir)['all_features']], axis=0)
-latents_sd3_se_new = np.concatenate([f.reshape(f.shape[0], *latent_res) for f in get_latents(vae_sd3_se_new_path, f"cuda:{device}",image_size=image_size,batch_size=batch_size, image_dir=image_dir, cache_dir=cache_dir)['all_features']], axis=0)
+latents_sd3_M_se_16 = np.concatenate([f.reshape(f.shape[0], *latent_res) for f in get_latents(vae_sd3_medium_f16_se_path, f"cuda:{device}",image_size=image_size,batch_size=batch_size, image_dir=image_dir, cache_dir=cache_dir)['all_features']], axis=0)
+latents_sd3_M = np.concatenate([f.reshape(f.shape[0], *latent_res) for f in get_latents(vae_sd3_medium_path, f"cuda:{device}",image_size=image_size,batch_size=batch_size, image_dir=image_dir, cache_dir=cache_dir)['all_features']], axis=0)
+latents_sd3_M_se = np.concatenate([f.reshape(f.shape[0], *latent_res) for f in get_latents(vae_sd3_medium_se_path, f"cuda:{device}",image_size=image_size,batch_size=batch_size, image_dir=image_dir, cache_dir=cache_dir)['all_features']], axis=0)
+
+
+# latents_sd3_L_se = np.concatenate([f.reshape(f.shape[0], *latent_res) for f in get_latents(vae_sd3_large_se_path, f"cuda:{device}",image_size=image_size,batch_size=batch_size, image_dir=image_dir, cache_dir=cache_dir)['all_features']], axis=0)
+# latents_sd3_L = np.concatenate([f.reshape(f.shape[0], *latent_res) for f in get_latents(vae_sd3_large_path, f"cuda:{device}",image_size=image_size,batch_size=batch_size, image_dir=image_dir, cache_dir=cache_dir)['all_features']], axis=0)
 
 latents_sana_se = np.concatenate([f.reshape(f.shape[0], *sana_latent_res) for f in get_latents(vae_sana_se_path, f"cuda:{device}",image_size=image_size,batch_size=batch_size, image_dir=image_dir, cache_dir=cache_dir)['all_features']], axis=0)
+latents_sana = np.concatenate([f.reshape(f.shape[0], *sana_latent_res) for f in get_latents(vae_sana_path, f"cuda:{device}",image_size=image_size,batch_size=batch_size, image_dir=image_dir, cache_dir=cache_dir)['all_features']], axis=0)
+
 latents_rgb = get_rgb_like_latent(latent_res,latents_flux_without_se.shape[0], image_dir=image_dir)
-latents_rgb_sana = get_rgb_like_latent(sana_latent_res,latents_sana_se.shape[0], image_dir=image_dir)
+# latents_rgb_sana = get_rgb_like_latent(sana_latent_res,latents_sana_se.shape[0], image_dir=image_dir)
 
 latents = {
-    "FluxAE-ch16": latents_flux_without_se,
-    "FluxAE-ch16+SE": latents_flux_with_se,
-    # "SD3-ch16+SE_old": latents_sd3_se,
-    "SD3-ch16+F16+SE": latents_sd3_f16_se,
-    "SD3-ch16+SE": latents_sd3_se_new,
-    "Sana-ch32+SE": latents_sana_se,
+    "FluxAE": latents_flux_without_se,
+    "FluxAE+SE": latents_flux_with_se,
+    # "SD3-Med+F16+SE": latents_sd3_M_se_16,
+    "SD3-Med+SE": latents_sd3_M_se,
+    "SD3-Med": latents_sd3_M,
+    # "SD3-Large+F16+SE": latents_sd3_L_se,
+    # "SD3-Large": latents_sd3_L,
+    "Sana+SE": latents_sana_se,
+    "Sana": latents_sana,
     "RGB": latents_rgb,
     # "RGB-32-Sana": latents_rgb_sana,
 }
 
-block_size = 8
 resolutions = {k: l.shape[-1] for k, l in latents.items()}
 min_res = min(resolutions.values())
 spectrums = {k: compute_dct_amplitude_spectrum(ls[:,[0]], block_size=block_size, norm='ortho') for k, ls in latents.items()}
@@ -605,6 +631,6 @@ spectrums = {k: compute_dct_amplitude_spectrum(ls[:,[0]], block_size=block_size,
 # %%
 plot_spectrums_flat({k:np.log(s[2][:,0]) for k, s in spectrums.items()}, ylabel='Normalized Amplitude',
                      plot_average=True, disable_color_grad=False, external_legend=False, 
-                     figsize=(10,6), save_path=f'src/vae_SE_finetuning/results/fluxae-ch_16_{image_size}_{block_size}.pdf')
+                     figsize=(10,6), save_path=f'/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/vae_SE_finetuning/results/fluxae_{image_size}_{block_size}.pdf')
 
 

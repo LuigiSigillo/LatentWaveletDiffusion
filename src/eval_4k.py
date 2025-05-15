@@ -198,9 +198,9 @@ def generate_images(root_path_proj, checkpoint_path,device_str, height=4096, wid
 
 def generate_images_for_style(style, prompts, device_id, root_path_proj, checkpoint_path, height, width, seed, cache_dir):
     # os.environ["CUDA_VISIBLE_DEVICES"] = str(device_id)  # Assign specific GPU
+    torch.cuda.set_device(device_id)
     device = torch.device("cuda:"+str(device_id))
     print(f"Using device: {device} and loading the pipe")
-
     pipe = load_model_4k(device,
                          cache_dir=cache_dir,
                          ckpt_lora_weights_2k="/leonardo_scratch/fast/IscrC_UniMod/luigi/HighResolutionWav/src/ckpt/urae_2k_adapter.safetensors",

@@ -14,8 +14,6 @@ from torchvision import transforms
 from torchvision.datasets import ImageFolder
 from torchvision.utils import save_image
 
-# from diffusers import AutoencoderKL
-from autoencoder_kl_diffusion4k import AutoencoderKL
 
 from diffusers import AutoencoderDC
 from diffusers.optimization import get_scheduler
@@ -155,6 +153,10 @@ def main():
     
     # Load pretrained VAE model
     logger.info(f"Loading pretrained VAE from {args.pretrained_model_name_or_path}")
+    if "flux" in args.pretrained_model_name_or_path:
+        from diffusers import AutoencoderKL
+    else:
+        from autoencoder_kl_diffusion4k import AutoencoderKL
     vae = AutoencoderKL.from_pretrained(
         args.pretrained_model_name_or_path,
         subfolder=args.subfolder,

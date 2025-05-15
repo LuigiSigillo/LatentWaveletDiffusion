@@ -353,6 +353,13 @@ def parse_args(input_args=None):
         default=0.1,
         help="l_mask value for wavelet attention.",
     )
+    parser.add_argument(
+        "--timesteps_for_visualization",
+        type=int,
+        nargs='+',
+        default=[1, 100, 200, 300, 400, 500, 600,700,800, 900,1000], # Example default values
+        help="A list of timesteps for which to generate visualizations (e.g., 100 500 900). These should be actual time values present in the scheduler's timesteps.",
+    )
     if input_args is not None:
         args = parser.parse_args(input_args)
     else:
@@ -827,10 +834,12 @@ def main(args):
                 noisy_model_input = (1.0 - sigmas) * model_input + sigmas * noise
                 
                 #TODO new
-                if args.wavelet_attention:
-                    A = compute_wavelet_attention(noisy_model_input, dwt)  # shape: (B, H, W)
-                    # M = get_mask_batch(A, l=0.1, T=noise_scheduler.config.num_train_timesteps, timesteps=indices)
-                    M = get_mask_batch(A, l=args.wav_att_l_mask, T=noise_scheduler.config.num_train_timesteps, timesteps=timesteps)
+                # if args.wavelet_attention:
+                #     A, vis_dict_wav_att = compute_wavelet_attention(noisy_model_input, dwt, 
+                #                                                     return_visualization=global_step % args.visualize_every == 0 and accelerator.is_main_process)  # shape: (B, H, W)
+                #     # M = get_mask_batch(A, l=0.1, T=noise_scheduler.config.num_train_timesteps, timesteps=indices)
+                #     M, vis_dict_mask = get_mask_batch(A, l=args.wav_att_l_mask, T=noise_scheduler.config.num_train_timesteps, timesteps=timesteps,
+                #                                       return_visualization=global_step % args.visualize_every == 0 and accelerator.is_main_process)
                     # print("indices:", indices[:5])
                     # print("timesteps:", timesteps[:5])
                     # print("scheduler.timesteps:", noise_scheduler.timesteps[:10])
@@ -881,8 +890,12 @@ def main(args):
             if not args.wavelet_attention:
                 loss = (weighting.float() * (model_pred.float() - target.float()) ** 2).mean()
             #TODO
-            # New (masked)
+            # 
             else:
+                A, vis_dict_wav_att = compute_wavelet_attention(noisy_model_input, dwt, 
+                                                                    return_visualization=global_step % args.visualize_every == 0 and accelerator.is_main_process)  # shape: (B, H, W)
+                M, vis_dict_mask = get_mask_batch(A, l=args.wav_att_l_mask, T=noise_scheduler.config.num_train_timesteps, timesteps=timesteps,
+                                                      return_visualization=global_step % args.visualize_every == 0 and accelerator.is_main_process)
                 masked_diff = M * (model_pred - target)  # shape (B, C, H, W)
                 loss = (weighting.float() * masked_diff.pow(2)).mean()
 
@@ -899,25 +912,55 @@ def main(args):
             optimizer.zero_grad()
             if global_step % args.visualize_every == 0 and accelerator.is_main_process:
                 # Call the visualization function
+                # visualization_success = save_tensor_visualizations(
+                #     vis_dict_wav_att = vis_dict_wav_att,
+                #     vis_dict_mask = vis_dict_mask,
+                #     A=A,
+                #     M=M,
+                #     model_pred=model_pred,
+                #     model_input=model_input,
+                #     target=target,
+                #     masked_diff=masked_diff,
+                #     timesteps=timesteps,
+                #     indices=indices,
+                #     noise_scheduler=noise_scheduler,
+                #     global_step=global_step,
+                #     output_dir=args.output_dir,
+                #     logger=logger,
+                #     vae=vae,
+                #     noisy_model_input=noisy_model_input,
+                #     noise=noise,
+                #     vae_scale_factor=vae_config_scaling_factor,
+                #     vae_shift_factor=vae_config_shift_factor,
+                #     accelerator=accelerator, # Pass accelerator here,
+                #     get_sigmas=get_sigmas, prompt_embeds=prompt_embeds, text_ids=text_ids, pooled_prompt_embeds=pooled_prompt_embeds,
+                #     transformer=transformer,
+                #     latent_image_ids=latent_image_ids, dwt=dwt, guidance=guidance
+                # )
+                                # Calculate vae_unpack_scale_factor
+                vae_unpack_scale_factor = 2 ** (len(vae_config_block_out_channels))
+                
+                # Call the visualization function
                 visualization_success = save_tensor_visualizations(
-                    A=A,
-                    M=M,
-                    model_pred=model_pred,
                     model_input=model_input,
-                    target=target,
-                    masked_diff=masked_diff,
-                    timesteps=timesteps,
-                    indices=indices,
-                    noise_scheduler=noise_scheduler,
+                    original_noise=noise, # Pass the noise used for the training step
+                    noise_scheduler=noise_scheduler_copy, # Pass the copy for safety
                     global_step=global_step,
-                    output_dir=args.output_dir,
                     logger=logger,
                     vae=vae,
-                    noisy_model_input=noisy_model_input,
-                    noise=noise,
-                    vae_scale_factor=vae_config_scaling_factor,
-                    vae_shift_factor=vae_config_shift_factor,
-                    accelerator=accelerator # Pass accelerator here
+                    vae_decode_scale_factor=vae_config_scaling_factor,
+                    vae_decode_shift_factor=vae_config_shift_factor,
+                    accelerator=accelerator,
+                    get_sigmas=get_sigmas,
+                    prompt_embeds=prompt_embeds,
+                    text_ids=text_ids,
+                    pooled_prompt_embeds=pooled_prompt_embeds,
+                    transformer=unwrap_model(transformer), # Ensure we have the unwrapped model for inference
+                    latent_image_ids=latent_image_ids,
+                    dwt=dwt if args.wavelet_attention else None,
+                    guidance=guidance,
+                    args=args, # Pass the full args
+                    vae_unpack_scale_factor=vae_unpack_scale_factor
                 )
                 if not visualization_success:
                     # Log warning instead of raising exception, as tensors are saved
@@ -1095,80 +1138,341 @@ def save_map(map_batch, filename_base, timestep, global_step, viz_dir, logger, a
         return False
 
 
-def save_tensor_visualizations(A, M, model_pred, model_input, target, masked_diff, # Removed pred_minus_target from args
-                              timesteps, indices, noise_scheduler, global_step, output_dir, logger, vae,
-                              noisy_model_input, noise, vae_scale_factor, vae_shift_factor, accelerator):
-    """
-    Save visualizations of various tensors during training. Attempts to decode latents
-    using VAE, logs images to wandb if enabled, falls back to saving raw tensors if decoding fails.
-    Includes timestep in filenames. Applies specific normalization and heatmaps. Calculates pred_minus_target internally.
 
-    Args:
-        # ... (previous args, excluding pred_minus_target) ...
-        accelerator: The Accelerator object for checking wandb status and process rank.
+
+def save_tensor_visualizations(model_input, original_noise, noise_scheduler, global_step, logger, vae,
+                              vae_decode_scale_factor, vae_decode_shift_factor, accelerator, 
+                              get_sigmas, prompt_embeds, text_ids, pooled_prompt_embeds, transformer,
+                              latent_image_ids, dwt, guidance, args, vae_unpack_scale_factor):
     """
+    Save visualizations of various tensors during training for multiple specified timesteps.
+    Attempts to decode latents using VAE, logs images to wandb if enabled,
+    falls back to saving raw tensors if decoding fails.
+    Applies specific normalization and heatmaps.
+    """
+    from new_wav_attn_maps import compute_wavelet_attention, get_mask_batch
+    # pytorch_wavelets is imported in main and dwt is passed if needed.
+
     overall_success = True
-    try:
-        viz_dir = os.path.join(output_dir, "visualizations", f"step_{global_step}")
-        os.makedirs(viz_dir, exist_ok=True)
-        logger.info(f"Saving visualizations for step {global_step} to {viz_dir}")
+    base_viz_dir = os.path.join(args.output_dir, "visualizations", f"step_{global_step}")
+    os.makedirs(base_viz_dir, exist_ok=True)
+    logger.info(f"Saving multi-timestep visualizations for step {global_step} to {base_viz_dir}")
 
-        current_timestep = timesteps[0].item() if timesteps is not None and len(timesteps) > 0 else "unknown"
-        logger.info(f"Visualizing tensors for timestep: {current_timestep}")
-
-        # --- Calculate pred_minus_target internally ---
-        pred_minus_target = None
-        if model_pred is not None and target is not None:
-            try:
-                pred_minus_target = model_pred - target
-            except Exception as calc_e:
-                logger.error(f"Failed to calculate pred_minus_target: {calc_e}")
-        else:
-            logger.warning("Cannot calculate pred_minus_target because model_pred or target is None.")
-
-
-        # --- Save Maps (A and M) as Heatmaps ---
-        map_colormap = 'viridis'
-        if A is not None:
-             if not save_map(A, "A_wavelet_attention", current_timestep, global_step, viz_dir, logger, accelerator, colormap=map_colormap):
-                 overall_success = False
-        if M is not None:
-            if not save_map(M, "M_mask", current_timestep, global_step, viz_dir, logger, accelerator, colormap=map_colormap):
-                overall_success = False
-
-        # --- Decode and Save Latent-based Tensors ---
-        tensors_to_decode = {
-            "noisy_model_input": noisy_model_input,
-            "masked_diff": masked_diff,         # Will use min/max normalization
-            "model_pred": model_pred,           # Will use standard [-1,1] -> [0,1] normalization
-            "target": target,                   # Will use min/max normalization
-            "pred_minus_target": pred_minus_target, # Will use min/max normalization (if calculated)
-            "noise": noise,                     # Will use standard [-1,1] -> [0,1] normalization
-            "model_input": model_input,         # Will use standard [-1,1] -> [0,1] normalization
-        }
-
+    # Ensure VAE is in eval mode for decoding
+    vae_is_training = vae.training
+    if vae_is_training:
         vae.eval()
 
-        for name, tensor in tensors_to_decode.items():
-            if tensor is not None:
-                # decode_and_save now handles the specific normalization internally based on 'name'
-                if not decode_and_save(tensor, name, current_timestep, global_step, vae, vae_scale_factor, vae_shift_factor, viz_dir, logger, accelerator):
-                    overall_success = False
-            else:
-                 # Log warning only if it wasn't the internally calculated pred_minus_target that failed
-                 if name != "pred_minus_target" or (model_pred is not None and target is not None):
-                     logger.warning(f"Tensor '{name}' is None, skipping visualization.")
+    # Store original transformer training state
+    transformer_is_training = transformer.training
+    if transformer_is_training:
+        transformer.eval() # Set to eval for consistent visualization inference
 
-    except Exception as e:
-        logger.error(f"An unexpected error occurred during visualization saving for step {global_step}: {e}", exc_info=True)
-        overall_success = False
+    for viz_timestep_value_float in args.timesteps_for_visualization:
+        # Ensure the timestep is a float, as scheduler timesteps are often floats
+        current_viz_timestep_val = float(viz_timestep_value_float)
+        try:
+            logger.info(f"Visualizing for timestep: {current_viz_timestep_val} (float)")
+            
+            viz_dir_for_ts = os.path.join(base_viz_dir, f"ts_{current_viz_timestep_val}")
+            os.makedirs(viz_dir_for_ts, exist_ok=True)
+
+            # --- Recompute tensors for current_viz_timestep_val ---
+            # Create a tensor for the current timestep for functions expecting a batch of timesteps
+            # Ensure it's on the correct device and dtype for get_sigmas and model
+            current_viz_timestep_tensor_sched = torch.tensor([current_viz_timestep_val], device=model_input.device, dtype=noise_scheduler.timesteps.dtype)
+            
+            sigmas_viz = get_sigmas(current_viz_timestep_tensor_sched, n_dim=model_input.ndim, dtype=model_input.dtype)
+            noisy_model_input_viz = (1.0 - sigmas_viz) * model_input + sigmas_viz * original_noise
+
+            A_viz, vis_dict_wav_att_viz, M_viz, vis_dict_mask_viz = None, None, None, None
+            masked_diff_viz = None
+
+            if args.wavelet_attention:
+                if dwt is None:
+                    logger.warning("DWT is None, cannot compute wavelet attention for visualization.")
+                else:
+                    # Ensure current_viz_timestep_tensor for get_mask_batch is float as it's used in t/T
+                    current_viz_timestep_tensor_float = torch.tensor([current_viz_timestep_val], device=model_input.device, dtype=torch.float32)
+                    A_viz, vis_dict_wav_att_viz = compute_wavelet_attention(noisy_model_input_viz, dwt, return_visualization=True)
+                    if A_viz is not None: # Check if A_viz was successfully computed
+                        M_viz, vis_dict_mask_viz = get_mask_batch(A_viz, l=args.wav_att_l_mask, T=noise_scheduler.config.num_train_timesteps, timesteps=current_viz_timestep_tensor_float, return_visualization=True)
+
+            packed_noisy_model_input_viz = FluxPipeline._pack_latents(
+                noisy_model_input_viz,
+                batch_size=model_input.shape[0],
+                num_channels_latents=model_input.shape[1],
+                height=model_input.shape[2],
+                width=model_input.shape[3],
+            )
+            
+            # Transformer forward pass (ensure no_grad context)
+            with torch.no_grad():
+                # Timestep for transformer is scaled by 1000
+                transformer_timestep = torch.tensor([current_viz_timestep_val / 1000.0], device=model_input.device, dtype=transformer.dtype if hasattr(transformer, 'dtype') else torch.float32) # Match transformer input dtype
+                if guidance is not None:
+                    guidance = guidance.to(model_input.device, dtype=transformer_timestep.dtype)
+                if pooled_prompt_embeds is not None:
+                    pooled_prompt_embeds = pooled_prompt_embeds.to(model_input.device, dtype=transformer.dtype if hasattr(transformer, 'dtype') else weight_dtype) # Use weight_dtype as fallback
+                if prompt_embeds is not None:
+                    prompt_embeds = prompt_embeds.to(model_input.device, dtype=transformer.dtype if hasattr(transformer, 'dtype') else weight_dtype)
+                if text_ids is not None:
+                    text_ids = text_ids.to(model_input.device, dtype=transformer.dtype if hasattr(transformer, 'dtype') else weight_dtype)
+                if latent_image_ids is not None:
+                    latent_image_ids = latent_image_ids.to(model_input.device, dtype=transformer.dtype if hasattr(transformer, 'dtype') else weight_dtype)
+
+
+                model_pred_viz = transformer(
+                    hidden_states=packed_noisy_model_input_viz.to(transformer.dtype if hasattr(transformer, 'dtype') else weight_dtype),
+                    timestep=transformer_timestep,
+                    guidance=guidance,
+                    pooled_projections=pooled_prompt_embeds,
+                    encoder_hidden_states=prompt_embeds,
+                    txt_ids=text_ids,
+                    img_ids=latent_image_ids,
+                    return_dict=False,
+                    ntk_factor=args.ntk_factor,
+                    joint_attention_kwargs={'proportional_attention': args.proportional_attention}
+                )[0]
+
+            model_pred_viz = FluxPipeline._unpack_latents(
+                model_pred_viz,
+                height=int(model_input.shape[2] * vae_unpack_scale_factor / 2),
+                width=int(model_input.shape[3] * vae_unpack_scale_factor / 2),
+                vae_scale_factor=vae_unpack_scale_factor,
+            )
+
+            target_viz = original_noise - model_input
+            pred_minus_target_viz = model_pred_viz - target_viz
+
+            if args.wavelet_attention and M_viz is not None:
+                masked_diff_viz = M_viz * (model_pred_viz - target_viz)
+            
+            # --- Visualize wavelet components from vis_dict_wav_att_viz ---
+            if vis_dict_wav_att_viz is not None:
+                logger.info(f"Visualizing wavelet components for ts {current_viz_timestep_val}...")
+                for wavelet_name in ['LL', 'LH', 'HL', 'HH']:
+                    if wavelet_name in vis_dict_wav_att_viz:
+                        wavelet_comp = vis_dict_wav_att_viz[wavelet_name]
+                        if len(wavelet_comp.shape) == 4 and wavelet_comp.shape[1] > 1:
+                            wavelet_avg = wavelet_comp[0].mean(dim=0)
+                        else:
+                            wavelet_avg = wavelet_comp[0]
+                        wavelet_map = wavelet_avg.abs().unsqueeze(0)
+                        colormap = 'inferno' if wavelet_name == 'LL' else 'viridis'
+                        if not save_map(wavelet_map, f"wavelet_{wavelet_name}", current_viz_timestep_val, global_step, 
+                                        viz_dir_for_ts, logger, accelerator, colormap=colormap):
+                            overall_success = False
+                for energy_name in ['LH_energy', 'HL_energy', 'HH_energy', 'HF_energy', 'attn_map_raw']:
+                    if energy_name in vis_dict_wav_att_viz:
+                        energy_map = vis_dict_wav_att_viz[energy_name]
+                        energy_map_to_save = energy_map.unsqueeze(0) if energy_map.dim() == 2 else energy_map
+                        if energy_map_to_save.dim() == 2: # If it's (H,W) after selecting batch 0
+                             energy_map_to_save = energy_map_to_save.unsqueeze(0) # Add batch dim for save_map
+
+                        if not save_map(energy_map_to_save, f"wavelet_{energy_name}", current_viz_timestep_val, global_step, 
+                                       viz_dir_for_ts, logger, accelerator, colormap='plasma'):
+                            overall_success = False
+            
+            # --- Visualize mask components from vis_dict_mask_viz ---
+            if vis_dict_mask_viz is not None:
+                logger.info(f"Visualizing mask components for ts {current_viz_timestep_val}...")
+                for mask_comp_name in ['A_float', 'A_plus_l', 't_matrix', 'thresholds']:
+                    if mask_comp_name in vis_dict_mask_viz:
+                        mask_comp = vis_dict_mask_viz[mask_comp_name]
+                        # Ensure mask_comp is batched for save_map if it's not already
+                        mask_comp_to_save = mask_comp if mask_comp.dim() == 3 and mask_comp.shape[0] ==1 else mask_comp.unsqueeze(0)
+
+                        colormap = 'cool' if mask_comp_name == 't_matrix' else 'hot' if mask_comp_name == 'thresholds' else 'viridis'
+                        if not save_map(mask_comp_to_save, f"mask_{mask_comp_name}", current_viz_timestep_val, global_step, 
+                                       viz_dir_for_ts, logger, accelerator, colormap=colormap):
+                            overall_success = False
+
+            # --- Save Maps (A_viz and M_viz) as Heatmaps ---
+            map_colormap = 'viridis'
+            if A_viz is not None:
+                 if not save_map(A_viz, "A_wavelet_attention", current_viz_timestep_val, global_step, viz_dir_for_ts, logger, accelerator, colormap=map_colormap):
+                     overall_success = False
+            if M_viz is not None:
+                if not save_map(M_viz, "M_mask", current_viz_timestep_val, global_step, viz_dir_for_ts, logger, accelerator, colormap=map_colormap):
+                    overall_success = False
+
+            # --- Decode and Save Latent-based Tensors ---
+            tensors_to_decode_viz = {
+                "noisy_model_input": noisy_model_input_viz,
+                "masked_diff": masked_diff_viz,
+                "model_pred": model_pred_viz,
+                "target": target_viz,
+                "pred_minus_target": pred_minus_target_viz,
+                "noise_original_for_step": original_noise, # The noise used for the training step
+                "model_input_clean": model_input,      # The clean input latents
+            }
+
+            for name, tensor_val in tensors_to_decode_viz.items():
+                if tensor_val is not None:
+                    if not decode_and_save(tensor_val, name, current_viz_timestep_val, global_step, vae, 
+                                           vae_decode_scale_factor, vae_decode_shift_factor, 
+                                           viz_dir_for_ts, logger, accelerator):
+                        overall_success = False
+                elif name != "pred_minus_target" or (model_pred_viz is not None and target_viz is not None):
+                         logger.warning(f"Tensor '{name}' for ts {current_viz_timestep_val} is None, skipping visualization.")
+        
+        except Exception as e_ts:
+            logger.error(f"Error during visualization for timestep {current_viz_timestep_val} at step {global_step}: {e_ts}", exc_info=True)
+            overall_success = False
+            # Continue to the next timestep if one fails
+
+    # Restore original training states
+    if vae_is_training:
+        vae.train()
+    if transformer_is_training:
+        transformer.train()
 
     if overall_success:
-        logger.info(f"Successfully completed visualization saving attempt for step {global_step}.")
+        logger.info(f"Successfully completed multi-timestep visualization saving attempt for step {global_step}.")
     else:
-        logger.warning(f"Visualization saving process encountered errors for step {global_step}. Check logs and saved tensors.")
+        logger.warning(f"Multi-timestep visualization saving process encountered errors for step {global_step}. Check logs and saved tensors.")
 
     return overall_success
+
+# def save_tensor_visualizations(vis_dict_wav_att, vis_dict_mask, A, M, model_pred, model_input, target, masked_diff, # Removed pred_minus_target from args
+#                               timesteps, indices, noise_scheduler, global_step, output_dir, logger, vae,
+#                               noisy_model_input, noise, vae_scale_factor, vae_shift_factor, accelerator, 
+#                               get_sigmas=None, prompt_embeds=None, text_ids=None, pooled_prompt_embeds=None,transformer=None,
+#                               latent_image_ids=None, dwt=None, guidance=None):
+#     """
+#     Save visualizations of various tensors during training. Attempts to decode latents
+#     using VAE, logs images to wandb if enabled, falls back to saving raw tensors if decoding fails.
+#     Includes timestep in filenames. Applies specific normalization and heatmaps. Calculates pred_minus_target internally.
+
+#     Args:
+#         # ... (previous args, excluding pred_minus_target) ...
+#         accelerator: The Accelerator object for checking wandb status and process rank.
+#     """
+#     from new_wav_attn_maps import compute_wavelet_attention, get_mask_batch
+#     from pytorch_wavelets import DWTForward  # Discrete Wavelet Transform
+#     overall_success = True
+#     try:
+#         viz_dir = os.path.join(output_dir, "visualizations", f"step_{global_step}")
+#         os.makedirs(viz_dir, exist_ok=True)
+#         logger.info(f"Saving visualizations for step {global_step} to {viz_dir}")
+
+#         current_timestep = timesteps[0].item() if timesteps is not None and len(timesteps) > 0 else "unknown"
+#         logger.info(f"Visualizing tensors for timestep: {current_timestep}")
+
+#         # --- Calculate pred_minus_target internally ---
+#         pred_minus_target = None
+#         if model_pred is not None and target is not None:
+#             try:
+#                 pred_minus_target = model_pred - target
+#             except Exception as calc_e:
+#                 logger.error(f"Failed to calculate pred_minus_target: {calc_e}")
+#         else:
+#             logger.warning("Cannot calculate pred_minus_target because model_pred or target is None.")
+
+#         # --- Visualize wavelet components from vis_dict_wav_att ---
+#         if vis_dict_wav_att is not None:
+#             logger.info("Visualizing wavelet components...")
+            
+#             # Process wavelet coefficient maps (LL, LH, HL, HH)
+#             for wavelet_name in ['LL', 'LH', 'HL', 'HH']:
+#                 if wavelet_name in vis_dict_wav_att:
+#                     wavelet_comp = vis_dict_wav_att[wavelet_name]
+#                     # Wavelets have shape (B, C, H/2, W/2) - visualize average across channels
+#                     if len(wavelet_comp.shape) == 4 and wavelet_comp.shape[1] > 1:
+#                         wavelet_avg = wavelet_comp[0].mean(dim=0)  # Average across channels for first batch item
+#                     else:
+#                         wavelet_avg = wavelet_comp[0]  # Take first batch item
+                        
+#                     wavelet_map = wavelet_avg.abs()  # Use absolute values for better visualization
+#                     wavelet_map = wavelet_map.unsqueeze(0)  # Add batch dim back
+                    
+#                     # Save as heatmap
+#                     colormap = 'inferno' if wavelet_name == 'LL' else 'viridis'
+#                     if not save_map(wavelet_map, f"wavelet_{wavelet_name}", current_timestep, global_step, 
+#                                     viz_dir, logger, accelerator, colormap=colormap):
+#                         overall_success = False
+            
+#             # Process energy maps
+#             for energy_name in ['LH_energy', 'HL_energy', 'HH_energy', 'HF_energy', 'attn_map_raw']:
+#                 if energy_name in vis_dict_wav_att:
+#                     energy_map = vis_dict_wav_att[energy_name]
+#                     # Energy maps have shape (B, H/2, W/2) or (B, H, W)
+#                     energy_map = energy_map.unsqueeze(0) if energy_map.dim() == 2 else energy_map
+                    
+#                     if not save_map(energy_map, f"wavelet_{energy_name}", current_timestep, global_step, 
+#                                    viz_dir, logger, accelerator, colormap='plasma'):
+#                         overall_success = False
+        
+#         # --- Visualize mask components from vis_dict_mask ---
+#         if vis_dict_mask is not None:
+#             logger.info("Visualizing mask components...")
+            
+#             for mask_comp_name in ['A_float', 'A_plus_l', 't_matrix', 'thresholds']:
+#                 if mask_comp_name in vis_dict_mask:
+#                     mask_comp = vis_dict_mask[mask_comp_name]
+#                     # These components have shape (B, H, W)
+                    
+#                     # Choose appropriate colormap based on component
+#                     if mask_comp_name == 't_matrix':
+#                         colormap = 'cool'
+#                     elif mask_comp_name == 'thresholds':
+#                         colormap = 'hot'
+#                     else:
+#                         colormap = 'viridis'
+                    
+#                     if not save_map(mask_comp, f"mask_{mask_comp_name}", current_timestep, global_step, 
+#                                    viz_dir, logger, accelerator, colormap=colormap):
+#                         overall_success = False
+#         # --- Save Maps (A and M) as Heatmaps ---
+#         map_colormap = 'viridis'
+#         if A is not None:
+#              if not save_map(A, "A_wavelet_attention", current_timestep, global_step, viz_dir, logger, accelerator, colormap=map_colormap):
+#                  overall_success = False
+#         if M is not None:
+#             if not save_map(M, "M_mask", current_timestep, global_step, viz_dir, logger, accelerator, colormap=map_colormap):
+#                 overall_success = False
+
+#         # --- Decode and Save Latent-based Tensors ---
+#         tensors_to_decode = {
+#             "noisy_model_input": noisy_model_input,
+#             "masked_diff": masked_diff,         # Will use min/max normalization
+#             "model_pred": model_pred,           # Will use standard [-1,1] -> [0,1] normalization
+#             "target": target,                   # Will use min/max normalization
+#             "pred_minus_target": pred_minus_target, # Will use min/max normalization (if calculated)
+#             "noise": noise,                     # Will use standard [-1,1] -> [0,1] normalization
+#             "model_input": model_input,         # Will use standard [-1,1] -> [0,1] normalization
+#         }
+
+#         vae.eval()
+
+#         for name, tensor in tensors_to_decode.items():
+#             if tensor is not None:
+#                 # decode_and_save now handles the specific normalization internally based on 'name'
+#                 if not decode_and_save(tensor, name, current_timestep, global_step, vae, vae_scale_factor, vae_shift_factor, viz_dir, logger, accelerator):
+#                     overall_success = False
+#             else:
+#                  # Log warning only if it wasn't the internally calculated pred_minus_target that failed
+#                  if name != "pred_minus_target" or (model_pred is not None and target is not None):
+#                      logger.warning(f"Tensor '{name}' is None, skipping visualization.")
+             
+#     except Exception as e:
+#         logger.error(f"An unexpected error occurred during visualization saving for step {global_step}: {e}", exc_info=True)
+#         overall_success = False
+
+#     try:
+#         #create visualization of multiple timesteps
+
+#         pass
+#     except Exception as e:
+#         logger.error(f"An unexpected error occurred during visualization saving for step {global_step}: {e}", exc_info=True)
+#         overall_success = False
+#     if overall_success:
+#         logger.info(f"Successfully completed visualization saving attempt for step {global_step}.")
+#     else:
+#         logger.warning(f"Visualization saving process encountered errors for step {global_step}. Check logs and saved tensors.")
+
+#     return overall_success
 
     
 

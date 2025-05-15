@@ -1,8 +1,8 @@
 export CUDA_VISIBLE_DEVICES=0
-export VAE_MODEL_NAME="vae_SE_SD_512_N"
+export VAE_MODEL_NAME="vae_SE_FLUX_512"
 
 python vae_finetune_diffusability.py \
-  --pretrained_model_name_or_path "stabilityai/stable-diffusion-3-medium-diffusers" \
+  --pretrained_model_name_or_path "black-forest-labs/FLUX.1-dev" \
   --subfolder "vae" \
   --output_dir ./ckpt/$VAE_MODEL_NAME \
   --image_size 512 \
