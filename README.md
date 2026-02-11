@@ -556,14 +556,110 @@ for batch in dataloader:
 </details>
 
 <details>
-<summary><b>Stable Diffusion 3 (Diffusion4K)</b></summary>
+<summary><b>Sana/PixArt-Sigma (DiT)</b></summary>
+
+```python
+# In your Sana training script setup
+def initialize_wavelet_attention(args, device):
+    """Initialize wavelet attention components if enabled."""
+    if args.wavelet_attention:
+        print("Wavelet attention is enabled")
+        from pytorch_wavelets import DWTForward
+        dwt = DWTForward(J=1, wave="haar").to(device)
+        return dwt
+    return None
+
+# Before training loop
+dwt = initialize_wavelet_attention(args, accelerator.device)
+
+# Training loop
+for batch in dataloader:
+    # ... [standard Sana training code] ...
+
+    with accelerator.accumulate(model):
+        optimizer.zero_grad()
+
+        # Pass dwt through model_kwargs to the diffusion loss function
+        loss_term = train_diffusion.training_losses(
+            model,
+            clean_images,
+            timesteps,
+            model_kwargs=dict(
+                y=y,
+                mask=y_mask,
+                data_info=data_info,
+                dwt=dwt  # Pass dwt object
+            )
+        )
+        loss = loss_term["loss"].mean()
+        accelerator.backward(loss)
+
+# In gaussian_diffusion.py (diffusion model class)
+def training_losses(self, model, x_start, t, model_kwargs=None, noise=None):
+    # ... [standard diffusion code] ...
+
+    terms = {}
+    if model_kwargs.get("dwt", None) is not None:
+        from .new_wav_attn_maps import compute_wavelet_attention, get_mask_batch
+
+        # Compute wavelet attention from noisy input
+        A = compute_wavelet_attention(x_t, model_kwargs.get("dwt"))  # shape: (B, H, W)
+        M = get_mask_batch(A, l=0.3, T=self.num_timesteps, timesteps=t)
+
+    # ... [model prediction code] ...
+
+    # Compute loss with wavelet mask
+    if model_kwargs.get("dwt", None) is not None:
+        masked_diff = M * (output - target)  # shape (B, C, H, W)
+        terms["mse"] = mean_flat(masked_diff.pow(2))
+    else:
+        terms["mse"] = mean_flat(loss)
+```
 
 </details>
 
 <details>
-<summary><b>PixArt-Sigma (DiT, Latent Diffusion)</b></summary>
+<summary><b>Stable Diffusion 3 (Diffusion4K)</b></summary>
+
+```python
+# In your SD3 training loop
+if args.wavelet_attention:
+    from new_wav_attn_maps import compute_wavelet_attention, get_mask_batch
+    from pytorch_wavelets import DWTForward
+    dwt = DWTForward(J=1, wave="haar").to(device)
+
+# Training loop
+for batch in dataloader:
+    # ... [standard SD3 training code] ...
+
+    # Flow matching target (SD3 uses flow matching like FLUX)
+    target = model_input
+
+    if args.wavelet_attention:
+        # Compute wavelet attention from noisy latents
+        A = compute_wavelet_attention(noisy_model_input, dwt)  # shape: (B, H, W)
+
+        # Generate adaptive mask with tunable l parameter
+        M = get_mask_batch(
+            A,
+            l=args.wav_att_l_mask,              # PARAMETRIC: tune between 0.05-0.2
+            T=noise_scheduler.config.num_train_timesteps,  # e.g., 1000
+            timesteps=timesteps
+        )
+
+        # Flow matching loss with mask
+        masked_diff = M * (model_pred - target)
+        loss = (weighting.float() * masked_diff.pow(2)).mean()
+    else:
+        loss = torch.mean(
+            (weighting.float() * (model_pred.float() - target.float()) ** 2).reshape(target.shape[0], -1),
+            1,
+        )
+        loss = loss.mean()
+```
 
 </details>
+
 
 ### ✅ Checklist for Integration
 
@@ -581,50 +677,11 @@ for batch in dataloader:
 
 ## 📊 Results
 
-### Qualitative Results
-
 <p align="center">
   <img src='assets/results4kzoom_mix_page.jpg' width='100%' />
   <br>
   <em>Comparison of high-frequency detail preservation. Our method generates sharper textures and finer details.</em>
 </p>
-
-
-### Quantitative Comparison
-
-#### 2K Resolution (2048×2048) - HPD Dataset
-| Method | FID ↓ | LPIPS ↓ | MAN-IQA ↑ | QualiCLIP ↑ | HPSv2.1 ↑ | PickScore ↑ |
-|--------|-------|---------|-----------|-------------|-----------|-------------|
-| FLUX.1-dev | 37.58 | 0.6371 | 0.4110 | 0.5468 | 28.73 | 22.68 |
-| URAE (baseline) | 35.25 | 0.6717 | 0.4076 | 0.5423 | 31.15 | 22.41 |
-| **LWD + URAE** | **32.88** | **0.6336** | **0.4099** | 0.5356 | 28.78 | 22.43 |
-
-#### 2K Resolution (2048×2048) - Aesthetic Dataset
-| Method | FID ↓ | CLIPScore ↑ | Aesthetics ↑ | GLCM Score ↑ | Compression Ratio ↓ |
-|--------|-------|-------------|--------------|--------------|---------------------|
-| SD3-Diff4k-F16 | 40.18 | 34.04 | 5.96 | 0.79 | 11.73 |
-| **LWD + SD3-F16** | **38.74** | **34.94** | **6.17** | 0.74 | **11.99** |
-| PixArt-Sigma-XL | 39.13 | 35.02 | 6.43 | 0.79 | 13.66 |
-| **LWD + PixArt-Sigma-XL** | **36.14** | 35.21 | 6.27 | **0.87** | **6.05** |
-| Sana-1.6B | 32.06 | 35.28 | 6.15 | 0.93 | 24.01 |
-| **LWD + Sana-1.6B** | 34.30 | **35.58** | **6.23** | 0.78 | 27.34 |
-
-#### 4K Resolution (4096×4096) - HPD Dataset
-| Method | MAN-IQA ↑ | QualiCLIP ↑ | GLCM Score ↑ | Compression Ratio ↓ |
-|--------|-----------|-------------|--------------|---------------------|
-| PixArt-Sigma-XL | 0.2935 | 0.2308 | 0.48 | 45.15 |
-| Sana-1.6B | 0.3288 | 0.4979 | 0.71 | 25.89 |
-| FLUX.1-dev | 0.3673 | 0.2564 | - | - |
-| URAE (baseline) | 0.3850 | 0.3758 | 0.41 | 38.86 |
-| **LWD + URAE** | **0.4011** | **0.3855** | **0.74** | **28.77** |
-
-#### 4K Resolution (4096×4096) - Aesthetic Dataset
-| Method | CLIPScore ↑ | Aesthetics ↑ | GLCM Score ↑ | Compression Ratio ↓ |
-|--------|-------------|--------------|--------------|---------------------|
-| SD3-Diff4k-F16 | 33.41 | 5.97 | 0.70 | 11.90 |
-| **LWD + SD3-F16** | **34.08** | **6.03** | **0.77** | **12.27** |
-| Sana-1.6B | 34.40 | 6.14 | 0.39 | 48.36 |
-| **LWD + Sana-1.6B** | **34.59** | **6.21** | **0.60** | **32.62** |
 
 ---
 
