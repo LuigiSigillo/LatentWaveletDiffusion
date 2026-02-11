@@ -1,6 +1,6 @@
 torch>=2.1.0
 transformers
-diffusers==0.31.0
+diffusers>=0.31.0
 sentencepiece
 accelerate
 opencv-python
@@ -9,3 +9,10 @@ wandb
 jupyter
 patch_conv
 prodigyopt
+matplotlib
+torchvision
+bitsandbytes
+torch_dct
+PyWavelets
+einops
+lpips
