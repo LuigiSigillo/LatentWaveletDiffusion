@@ -1,10 +1,9 @@
 <div align="center">
 
-# Latent Wavelet Diffusion
-### Ultra-High-Resolution Image Synthesis with Frequency-Aware Training
+# Latent Wavelet Diffusion For Ultra High-Resolution Image Synthesis
 
-[![ICLR 2026](https://img.shields.io/badge/ICLR-2026-blue.svg)](https://iclr.cc/Conferences/2026)
-[![arXiv](https://img.shields.io/badge/arXiv-2501.xxxxx-b31b1b.svg)](https://arxiv.org/abs/2506.00433)
+[![ICLR 2026](https://img.shields.io/badge/ICLR-2026-blue.svg)](https://openreview.net/forum?id=5og80LMVxG)
+[![arXiv](https://img.shields.io/badge/arXiv-2506.00433-b31b1b.svg)](https://arxiv.org/abs/2506.00433)
 <!-- [![Project Page](https://img.shields.io/badge/Project-Page-green.svg)](https://luigisigillo.github.io/HighResolutionWav) -->
 [![License](https://img.shields.io/badge/License-Apache%202.0-yellow.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
@@ -24,7 +23,7 @@
 
 ## 🔥 Highlights
 
-- **🎯 Model-Agnostic Framework**: Apply to any diffusion architecture (SD, SDXL, DiT, FLUX)
+- **🎯 Model-Agnostic Framework**: Apply to any diffusion architecture (SD3, DiT, FLUX)
 - **🌊 Wavelet-Based Training**: Frequency-aware loss masking for superior high-frequency detail
 - **📈 State-of-the-Art Quality**: Improved FID, LPIPS, and perceptual metrics at 2K/4K resolution
 - **⚡ Efficient Training**: Leverages pre-cached latents and adaptive masking
@@ -49,8 +48,8 @@ We demonstrate our method on **URAE** (Ultra-Resolution Adaptation with Ease) as
 - [🔥 Highlights](#-highlights)
 - [📝 Abstract](#-abstract)
 <!-- - [⚡ Quick Start](#-quick-start) -->
-- [🛠️ Installation](#️-installation)
 <!-- - [📂 Project Structure](#-project-structure) -->
+- [🛠️ Installation](#️-installation)
 - [🚀 Pipeline Overview](#-pipeline-overview)
 - [🧬 Method Details](#-method-details)
 - [🔄 Applying to Other Models](#-applying-to-other-diffusion-models)
@@ -60,26 +59,6 @@ We demonstrate our method on **URAE** (Ultra-Resolution Adaptation with Ease) as
 - [🙏 Acknowledgements](#-acknowledgements)
 - [📄 License](#-license)
 
----
-
-<!-- ## ⚡ Quick Start
-
-```bash
-# Clone and setup
-git clone https://github.com/LuigiSigillo/LatentWaveletDiffusion.git
-cd LatentWaveletDiffusion
-conda create -n lwd python=3.12 && conda activate lwd
-pip install -r requirements.txt
-pip install -e src/pytorch_wavelets/
-
-# Generate a 2K image with our method
-python scripts/inference_2k.py \
-    --prompt "A serene mountain landscape at sunset" \
-    --checkpoint "path/to/trained/model" \
-    --height 2048 --width 2048
-```
-
---- -->
 
 ## 🛠️ Installation
 
@@ -115,20 +94,13 @@ pip install -e src/pytorch_wavelets/
 The complete pipeline consists of 5 stages:
 
 ```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│  1. VAE         │    │  2. Cache       │    │  3. Train       │
-│  Fine-tuning    │───▶│  Latents &      │───▶│  with Wavelet   │
-│  (Optional)     │    │  Embeddings     │    │  Attention      │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-                                                      │
-                       ┌─────────────────┐    ┌───────▼─────────┐
-                       │  5. Inference   │◀───│  4. Evaluation  │
-                       │                 │    │                 │
-                       └─────────────────┘    └─────────────────┘
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐     ┌─────────────────┐    ┌────────────────┐
+│  1. VAE         │    │  2. Cache       │    │  3. Train       │     │  5. Inference   │    │  4. Evaluation │
+│  Fine-tuning    │───▶│  Latents &      │───▶│  with Wavelet  │───▶│                 │───▶│                │
+│  (Optional)     │    │  Embeddings     │    │  Masking        │     │                 │    │                │
+└─────────────────┘    └─────────────────┘    └─────────────────┘     └─────────────────┘    └────────────────┘ 
+
 ```
-<p align="center">
-  <img src='assets/schema_v8_background_page-0001.jpg' width='100%' />
-</p>
 
 ### Step 1: VAE Fine-tuning (Optional)
 
@@ -216,11 +188,13 @@ dataset/
 ### Step 3: Training with Wavelet
 
 Train the diffusion model with our wavelet-based frequency-adaptive loss.
+<p align="center">
+  <img src='assets/schema_v8_background_page-0001.jpg' width='100%' />
+</p>
 
 ```bash
 # Edit src/batch_scripts/train_2k.sh:
 export MODEL_NAME="black-forest-labs/FLUX.1-dev"
-export VAE_MODEL_NAME="/path/to/fine-tuned/vae"  # or comment to use default
 export DATA_DIR="/path/to/dataset"
 export LATENT_CODE_DIR="/path/to/cached/latents"
 export OUTPUT_DIR="/path/to/checkpoints"
@@ -233,7 +207,7 @@ bash src/batch_scripts/train_2k.sh
 
 | Argument | Description | Default |
 |----------|-------------|---------|
-| `--wavelet_attention` | **Enable wavelet-based loss masking** | `False` |
+| `--wavelet_attention` | **Enable wavelet-based loss masking** | `True` |
 | `--latent_code_dir` | Directory with cached latents | None |
 | `--train_batch_size` | Batch size per GPU | 1 |
 | `--max_train_steps` | Total training iterations | 2000 |
@@ -242,7 +216,7 @@ bash src/batch_scripts/train_2k.sh
 <!-- | `--pretrained_vae_path` | Path to fine-tuned VAE | None | -->
 
 
-**Example SLURM script (for HPC clusters):**
+<!-- **Example SLURM script (for HPC clusters):**
 
 ```bash
 #!/bin/bash
@@ -259,62 +233,107 @@ accelerate launch --num_processes 4 --multi_gpu --mixed_precision bf16 \
     --train_batch_size=1 \
     --max_train_steps=2000 \
     --gradient_checkpointing
-```
+``` -->
 
 ### Step 4: Evaluation
 
-Evaluate generated images using various quality metrics.
+We provide evaluation scripts for both 2K and 4K resolutions using multiple benchmarks.
 
-```python
-from src.eval import evaluate_image_quality
+| Metric | Type | Description |
+|--------|------|-------------|
+| **FID** | Full-reference | Fréchet Inception Distance |
+| **LPIPS** | Full-reference | Learned Perceptual Image Patch Similarity |
+| **MAN-IQA** | No-reference | Multi-scale Attention Network IQA |
+| **QualiCLIP** | No-reference | CLIP-based quality assessment |
+| **HPSv2** | Text-image | Human Preference Score v2 |
+| **PickScore** | Text-image | Preference learning score |
 
-# No-reference metrics
-maniqa_score = evaluate_image_quality('maniqa', '/path/to/generated')
-qualiclip_score = evaluate_image_quality('qualiclip', '/path/to/generated')
+#### 4a. Evaluate 2K Models (`eval_v2.py`)
 
-# Full-reference metrics
-lpips_score = evaluate_image_quality('lpips', '/path/to/generated', ref_path='/path/to/reference')
-fid_score = evaluate_image_quality('fid', '/path/to/generated', ref_path='/path/to/reference')
+For 2K resolution models, we support HPDv2 and DPG benchmarks.
+
+```bash
+# Generate images for HPDv2 test set
+python src/eval_v2.py \
+    --generate_hpdv2_testset \
+    --json_file="/path/to/HPDv2/test.json" \
+    --output_dir="/path/to/output" \
+    --checkpoint_path="/path/to/checkpoint-2000" \
+    --cache_dir=$HF_HOME \
+    --height=2048 \
+    --width=2048 \
+    --seed=42
+
+# Generate images for DPG benchmark
+python src/eval_v2.py \
+    --generate_dpg_testset \
+    --prompt_folder_dpg="/path/to/dpg_bench/prompts" \
+    --output_dir="/path/to/output" \
+    --checkpoint_path="/path/to/checkpoint-2000" \
+    --cache_dir=$HF_HOME
+
+# Calculate metrics on generated images
+python src/eval_v2.py \
+    --calculate_metrics \
+    --generated_folder="/path/to/generated/images" \
+    --reference_folder="/path/to/reference/images" \
+    --cache_dir=$HF_HOME
 ```
+
+**Key arguments for `eval_v2.py`:**
+
+| Argument | Description |
+|----------|-------------|
+| `--generate_hpdv2_testset` | Generate images for HPDv2 benchmark |
+| `--generate_dpg_testset` | Generate images for DPG benchmark |
+| `--calculate_metrics` | Compute FID, PickScore, QualiCLIP, MAN-IQA, HPSv2 |
+| `--json_file` | Path to HPDv2 test JSON file |
+| `--prompt_folder_dpg` | Path to DPG benchmark prompts folder |
+| `--checkpoint_path` | Path to trained checkpoint |
+| `--height`, `--width` | Resolution (default: 2048×2048) |
+
+#### 4b. Evaluate 4K Models (`eval_4k.py`)
+
+For 4K resolution models, we use the HPSv2 benchmark with parallel multi-GPU generation.
+
+```bash
+# Generate and evaluate 4K images (uses all available GPUs)
+python src/eval_4k.py \
+    --checkpoint_path="/path/to/4k/checkpoint/adapter_weights.safetensors" \
+    --generate \
+    --height=4096 \
+    --width=4096 \
+    --seed=8888 \
+    --cache_dir=$HF_HOME
+
+# Generate for a specific style only
+python src/eval_4k.py \
+    --checkpoint_path="/path/to/4k/checkpoint/adapter_weights.safetensors" \
+    --generate \
+    --style="anime" \
+    --height=4096 \
+    --width=4096 \
+    --cache_dir=$HF_HOME
+```
+
+**Key arguments for `eval_4k.py`:**
+
+| Argument | Description |
+|----------|-------------|
+| `--checkpoint_path` | Path to 4K adapter weights (`.safetensors`) |
+| `--generate` | Enable image generation |
+| `--style` | Generate for specific style only (anime, concept-art, paintings, photo) |
+| `--height`, `--width` | Resolution (default: 4096×4096) |
+| `--cache_dir` | HuggingFace cache directory |
+
+**Supported styles:** `anime`, `concept-art`, `paintings`, `photo`
+
+
 
 ### Step 5: Inference
 
-Generate images using the trained model.
+For running inference, please use the Jupyter notebooks provided in the [`src/inference_nb/`](src/inference_nb/) folder. The notebook contains step-by-step instructions for generating images using the trained model.
 
-```python
-import torch
-from src.pipeline_flux import FluxPipeline
-from src.transformer_flux import FluxTransformer2DModel
-
-# Load model
-model_id = "black-forest-labs/FLUX.1-dev"
-transformer = FluxTransformer2DModel.from_pretrained(
-    model_id, subfolder="transformer", torch_dtype=torch.bfloat16
-)
-pipe = FluxPipeline.from_pretrained(
-    model_id, transformer=transformer, torch_dtype=torch.bfloat16
-)
-
-# Configure scheduler
-pipe.scheduler.config.use_dynamic_shifting = False
-pipe.scheduler.config.time_shift = 10
-
-# Load trained adapter
-pipe.load_lora_weights("/path/to/checkpoint", weight_name="adapter.safetensors")
-pipe.enable_model_cpu_offload()
-
-# Generate
-image = pipe(
-    "A beautiful landscape with mountains",
-    height=2048,
-    width=2048,
-    guidance_scale=3.5,
-    num_inference_steps=50,
-).images[0]
-image.save("output.png")
-```
-
----
 
 ## 🧬 Method Details
 
@@ -361,33 +380,13 @@ masked_diff = mask * (predicted - target)
 loss = (weighting * masked_diff.pow(2)).mean()
 ```
 
-**Intuition:** High-frequency details emerge in the later stages of denoising. Our mask ensures the model focuses training capacity where it matters most.
-
-### VAE Spectral Enhancement
-
-The VAE fine-tuning uses multiple loss components:
-
-```python
-# 1. Reconstruction loss (MSE)
-rec_loss = F.mse_loss(reconstructed, original)
-
-# 2. Perceptual loss (LPIPS)
-lpips_loss = lpips_model(reconstructed, original)
-
-# 3. Multi-scale consistency loss
-x_down = einops.reduce(original, 'b c (h s) (w s) -> b c h w', 'mean', s=scale)
-x_recon_down = einops.reduce(reconstructed, 'b c (h s) (w s) -> b c h w', 'mean', s=scale)
-scale_loss = F.mse_loss(x_recon_down, x_down)
-
-# Combined loss
-total_loss = rec_loss + lpips_weight * lpips_loss + reg_alpha * scale_loss
-```
+**Intuition:** High-frequency details emerge in the later stages of denoising. Our mask ensures the model focuses training capacity where it matters most.`
 
 ---
 
 ## 🔄 Applying to Other Diffusion Models
 
-Our method is designed to be **model-agnostic** and can be integrated into any diffusion training pipeline. This repository demonstrates the technique using **URAE** as a baseline for high-resolution adaptation with FLUX.1, but the same wavelet-based frequency masking can be applied to Stable Diffusion, SDXL, DiT, PixArt, or any other diffusion architecture.
+Our method is designed to be **model-agnostic** and can be integrated into any diffusion training pipeline. This repository demonstrates the technique using **URAE** as a baseline for high-resolution adaptation with FLUX, but the same wavelet-based frequency masking can be applied to SDXL, DiT, Sana, or any other diffusion architecture.
 
 ### 📋 Step-by-Step Integration Guide
 
@@ -399,17 +398,16 @@ Copy these two essential files to your training repository:
 # Copy the wavelet attention implementation
 cp src/new_wav_attn_maps.py /path/to/your/project/
 
-# Option A: Copy the entire pytorch_wavelets directory
-cp -r src/pytorch_wavelets/ /path/to/your/project/
-
-# Option B: Or install it as a package
-cd src/pytorch_wavelets/
-pip install -e .
+#install pytorch-wavelet as a package
+cd src/
+git clone https://github.com/fbcotter/pytorch_wavelets
+pip install PyWavelets>=1.0.0
+pip install -e src/pytorch_wavelets/
 ```
 
 **Required files:**
 - `new_wav_attn_maps.py` - Contains `compute_wavelet_attention()` and `get_mask_batch()` functions
-- `pytorch_wavelets/` - PyTorch DWT implementation (or install separately)
+- `pytorch_wavelets/` - PyTorch DWT implementation
 
 #### **Step 2: Add Command-Line Argument**
 
@@ -558,187 +556,14 @@ for batch in dataloader:
 </details>
 
 <details>
-<summary><b>Stable Diffusion 3 (MMDiT, Flow Matching)</b></summary>
-
-```python
-# SD3 uses flow matching with MMDiT architecture
-if args.wavelet_attention:
-    from new_wav_attn_maps import compute_wavelet_attention, get_mask_batch
-    from pytorch_wavelets import DWTForward
-    dwt = DWTForward(J=1, wave="haar").to(device)
-
-# Training loop
-for batch in dataloader:
-    # ... [standard SD3 training code] ...
-    
-    # Get noisy latents from VAE
-    latents = vae.encode(images).latent_dist.sample() * vae.config.scaling_factor
-    noise = torch.randn_like(latents)
-    
-    # Flow matching: x_t = (1 - t) * x_0 + t * noise
-    noisy_latents = (1 - sigmas) * latents + sigmas * noise
-    
-    # Model prediction
-    model_pred = transformer(noisy_latents, timesteps, encoder_hidden_states, ...)
-    
-    # Flow matching target
-    target = noise - latents
-    
-    if args.wavelet_attention:
-        A, _ = compute_wavelet_attention(noisy_latents, dwt)
-        M, _ = get_mask_batch(
-            A, 
-            l=args.wav_att_l_mask,              # Try 0.1 for SD3
-            T=1000, 
-            timesteps=timesteps
-        )
-        
-        # Masked flow matching loss
-        masked_diff = M * (model_pred - target)
-        loss = (weighting * masked_diff.pow(2)).mean()
-    else:
-        loss = (weighting * (model_pred - target) ** 2).mean()
-```
-
-**Key points:**
-- SD3 uses MMDiT (Multimodal Diffusion Transformer)
-- Flow matching objective like FLUX
-- Apply mask to flow matching loss
+<summary><b>Stable Diffusion 3 (Diffusion4K)</b></summary>
 
 </details>
 
 <details>
 <summary><b>PixArt-Sigma (DiT, Latent Diffusion)</b></summary>
 
-```python
-# PixArt-Sigma uses DiT architecture with epsilon/v-prediction
-if args.wavelet_attention:
-    from new_wav_attn_maps import compute_wavelet_attention, get_mask_batch
-    from pytorch_wavelets import DWTForward
-    dwt = DWTForward(J=1, wave="haar").to(device)
-
-# Training loop
-for batch in dataloader:
-    # ... [standard PixArt-Sigma training code] ...
-    
-    # Get latents
-    latents = vae.encode(images).latent_dist.sample() * vae.config.scaling_factor
-    noise = torch.randn_like(latents)
-    timesteps = torch.randint(0, scheduler.config.num_train_timesteps, (bsz,))
-    
-    # Add noise (DDPM-style)
-    noisy_latents = scheduler.add_noise(latents, noise, timesteps)
-    
-    # Model prediction
-    model_pred = transformer(
-        noisy_latents, 
-        timesteps,
-        encoder_hidden_states=prompt_embeds,
-        resolution=resolution,
-        aspect_ratio=aspect_ratio
-    )
-    
-    # Get target (v-prediction or epsilon)
-    if scheduler.config.prediction_type == "v_prediction":
-        target = scheduler.get_velocity(latents, noise, timesteps)
-    else:  # epsilon
-        target = noise
-    
-    if args.wavelet_attention:
-        A, _ = compute_wavelet_attention(noisy_latents, dwt)
-        M, _ = get_mask_batch(
-            A, 
-            l=args.wav_att_l_mask,              # Try 0.1-0.15 for PixArt-Sigma
-            T=scheduler.config.num_train_timesteps,
-            timesteps=timesteps
-        )
-        
-        # Masked loss
-        masked_diff = M * (model_pred - target)
-        loss = masked_diff.pow(2).mean()
-    else:
-        loss = F.mse_loss(model_pred, target)
-```
-
-**Key points:**
-- PixArt-Sigma uses DiT with T5 text encoder
-- Supports both v-prediction and epsilon prediction
-- Resolution and aspect ratio conditioning
-
 </details>
-
-<details>
-<summary><b>Sana (Efficient DiT)</b></summary>
-
-```python
-# Sana uses efficient linear attention DiT with flow matching
-if args.wavelet_attention:
-    from new_wav_attn_maps import compute_wavelet_attention, get_mask_batch
-    from pytorch_wavelets import DWTForward
-    dwt = DWTForward(J=1, wave="haar").to(device)
-
-# Training loop
-for batch in dataloader:
-    # ... [standard Sana training code] ...
-    
-    # Encode to latents using DC-AE (Sana's autoencoder)
-    latents = vae.encode(images).latent_dist.sample()
-    noise = torch.randn_like(latents)
-    
-    # Sana uses flow matching
-    timesteps = torch.rand((bsz,), device=device)
-    sigmas = timesteps.view(-1, 1, 1, 1)
-    noisy_latents = (1 - sigmas) * latents + sigmas * noise
-    
-    # Model prediction with efficient linear attention
-    model_pred = transformer(
-        noisy_latents,
-        timesteps,
-        encoder_hidden_states=text_embeddings,
-        ...
-    )
-    
-    # Flow matching target
-    target = noise - latents
-    
-    if args.wavelet_attention:
-        A, _ = compute_wavelet_attention(noisy_latents, dwt)
-        M, _ = get_mask_batch(
-            A, 
-            l=args.wav_att_l_mask,              # Try 0.08-0.12 for Sana
-            T=1000,
-            timesteps=timesteps * 1000  # Scale continuous timesteps to discrete
-        )
-        
-        # Masked flow matching loss
-        masked_diff = M * (model_pred - target)
-        loss = masked_diff.pow(2).mean()
-    else:
-        loss = F.mse_loss(model_pred, target)
-```
-
-**Key points:**
-- Sana uses DC-AE (Deep Compression Autoencoder)
-- Efficient linear attention mechanism
-- Flow matching with continuous timesteps [0, 1]
-- Scale timesteps appropriately for mask computation
-
-</details>
-
-### 🎯 Summary of Required Changes
-
-| Architecture | Training Objective | Target Variable |
-|--------------|-------------------|-----------------|
-| **URAE + FLUX.1** | Flow Matching | `noise - model_input` |
-| **Stable Diffusion 3** | Flow Matching | `noise - latents` |
-| **PixArt-Sigma** | V-prediction / ε-prediction | `v_target` or `noise` |
-| **Sana** | Flow Matching | `noise - latents` |
-
-**Notes:**
-- All architectures use the same wavelet attention mechanism
-- Only the loss target and prediction type differ
-- The `l` parameter should be tuned based on your dataset and resolution
-- Higher resolutions may benefit from lower `l` values (more aggressive)
 
 ### ✅ Checklist for Integration
 
@@ -755,6 +580,15 @@ for batch in dataloader:
 
 
 ## 📊 Results
+
+### Qualitative Results
+
+<p align="center">
+  <img src='assets/results4kzoom_mix_page.jpg' width='100%' />
+  <br>
+  <em>Comparison of high-frequency detail preservation. Our method generates sharper textures and finer details.</em>
+</p>
+
 
 ### Quantitative Comparison
 
@@ -791,23 +625,6 @@ for batch in dataloader:
 | **LWD + SD3-F16** | **34.08** | **6.03** | **0.77** | **12.27** |
 | Sana-1.6B | 34.40 | 6.14 | 0.39 | 48.36 |
 | **LWD + Sana-1.6B** | **34.59** | **6.21** | **0.60** | **32.62** |
-
-### Key Findings
-- **Consistent improvements** across multiple architectures (FLUX, SD3, PixArt-Sigma, Sana)
-- **Up to 7% FID reduction** and **6% LPIPS improvement** at 2K resolution
-- **Superior texture quality** indicated by improved GLCM scores and compression ratios
-- **Zero inference overhead** - same speed and parameters as baseline models
-- **Strong 4K performance** with highest MAN-IQA (0.4011) and competitive metrics across all tests
-
-
-### Qualitative Results
-
-<p align="center">
-  <img src='assets/results4kzoom_mix_page.jpg' width='100%' />
-  <br>
-  <em>Comparison of high-frequency detail preservation. Our method generates sharper textures and finer details.</em>
-</p>
-
 
 ---
 
@@ -855,7 +672,7 @@ Special thanks to the ICLR 2026 reviewers for their valuable feedback.
 
 ## 🌟 Star History
 
-<a href="https://star-history.com/#LuigiSigillo/HighResolutionWav&Date">
+<a href="https://star-history.com/#LuigiSigillo/LatentWaveletDiffusion&Date">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=LuigiSigillo/HighResolutionWav&type=Date&theme=dark" />
     <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=LuigiSigillo/HighResolutionWav&type=Date" />
