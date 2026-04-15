@@ -4,7 +4,7 @@
 
 [![ICLR 2026](https://img.shields.io/badge/ICLR-2026-blue.svg)](https://openreview.net/forum?id=5og80LMVxG)
 [![arXiv](https://img.shields.io/badge/arXiv-2506.00433-b31b1b.svg)](https://arxiv.org/abs/2506.00433)
-<!-- [![Project Page](https://img.shields.io/badge/Project-Page-green.svg)](https://luigisigillo.github.io/HighResolutionWav) -->
+[![Project Page](https://img.shields.io/badge/Project-Page-green.svg)](https://luigisigillo.github.io/LWD-page)
 [![License](https://img.shields.io/badge/License-Apache%202.0-yellow.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.1+-ee4c2c.svg)](https://pytorch.org/)
@@ -33,13 +33,12 @@
 
 ## 📝 Abstract
 
-**Latent Wavelet Diffusion** introduces a novel model-agnostic framework that significantly improves ultra-high-resolution image generation in diffusion models. By leveraging Discrete Wavelet Transform (DWT) to analyze frequency content in latent space, we develop a time-dependent training strategy that adaptively focuses on high-frequency regions during critical denoising stages. Our approach consists of three synergistic components:
+**Latent Wavelet Diffusion (LWD)** is a lightweight, model-agnostic training framework that significantly improves detail and texture fidelity in ultra-high-resolution (2K–4K) image synthesis — **without architectural modifications and with zero additional inference cost**. LWD introduces a frequency-aware masking strategy derived from wavelet energy maps that dynamically focuses training on detail-rich regions of the latent space, complemented by a scale-consistent VAE objective for high spectral fidelity. Our approach consists of three components applied in sequence:
 
-1. **Wavelet-based Frequency Analysis** - Employs DWT to identify and quantify high-frequency regions in the latent space, creating attention maps that guide training
-2. **Frequency-Adaptive Loss Masking** - Implements time-dependent masking that prioritizes fine-grained details during late denoising stages when high-frequency information emerges
-3. **VAE Spectral Enhancement** - Fine-tunes VAE decoders with multi-scale consistency losses for superior high-frequency reconstruction
+1. **VAE Spectral Enhancement** - Fine-tunes the VAE with a multi-scale scale-consistency loss (L2 reconstruction + KL regularization + LPIPS + scale-consistency), producing a regularized latent space where high-frequency energy corresponds to meaningful structure rather than noise
+2. **Wavelet-Derived Saliency Maps** - Applies a single-level DWT to the latent representation and aggregates the energy of the high-frequency subbands (LH, HL, HH) into a spatial saliency map that highlights structurally rich regions
+3. **Frequency-Guided Loss Masking** - Applies a time-dependent binary mask so that high-frequency regions receive supervision across *more* diffusion timesteps, while smooth regions are updated less frequently — concentrating learning capacity where detail matters most
 
-We demonstrate our method on **URAE** (Ultra-Resolution Adaptation with Ease) as a baseline, achieving superior results on 2K and 4K image generation benchmarks. The framework is designed for seamless integration into existing diffusion pipelines.
 
 ---
 
@@ -95,16 +94,17 @@ The complete pipeline consists of 5 stages:
 
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐     ┌─────────────────┐    ┌────────────────┐
-│  1. VAE         │    │  2. Cache       │    │  3. Train       │     │  5. Inference   │    │  4. Evaluation │
+│  1. VAE         │    │  2. Cache       │    │  3. Train       │     │  4. Evaluation  │    │  5. Inference  │
 │  Fine-tuning    │───▶│  Latents &      │───▶│  with Wavelet  │───▶│                 │───▶│                │
 │  (Optional)     │    │  Embeddings     │    │  Masking        │     │                 │    │                │
 └─────────────────┘    └─────────────────┘    └─────────────────┘     └─────────────────┘    └────────────────┘ 
 
 ```
 
-### Step 1: VAE Fine-tuning (Optional)
+<details>
+<summary><b>Step 1: VAE Fine-tuning (Optional)</b></summary>
 
-Fine-tune the VAE for better high-frequency reconstruction using spectral losses.
+Fine-tune the VAE with a multi-resolution scale-consistency objective (L2 reconstruction + KL regularization + LPIPS perceptual loss + scale-consistency term). This is the **first and prerequisite stage** of LWD: without it, the DWT-based wavelet saliency maps would pick up compression artifacts rather than meaningful structure. The fine-tuned VAE regularizes the latent spectrum so that high-frequency energy reliably corresponds to textures and edges.
 
 ```bash
 cd src/vae_SE_finetuning
@@ -131,6 +131,8 @@ python vae_finetune_diffusability.py \
 | `--lpips_weight` | Weight for LPIPS perceptual loss (default: 0.05) |
 | `--regularization_alpha` | Multi-scale consistency loss weight (default: 0.1) |
 | `--freeze_encoder` | Optionally freeze encoder, train only decoder |
+
+</details>
 
 ### Step 2: Cache Latents & Embeddings
 
@@ -189,7 +191,7 @@ dataset/
 
 Train the diffusion model with our wavelet-based frequency-adaptive loss.
 <p align="center">
-  <img src='assets/schema_v8_background_page-0001.jpg' width='100%' />
+  <img src='assets/arch.png' width='100%' />
 </p>
 
 ```bash
@@ -366,11 +368,12 @@ During training, we apply time-dependent masking to focus on high-frequency regi
 from src.new_wav_attn_maps import get_mask_batch
 
 # Get binary mask based on timestep and attention map
-# Early timesteps (high t): Focus on low-frequency (global structure)
-# Late timesteps (low t): Focus on high-frequency (fine details)
+# M_t(i,j) = 1 if T * (A[i,j] + l) >= t, else 0
+# High-frequency regions (high A) remain supervised across MORE timesteps.
+# All regions receive at least l*T steps of supervision (lower bound guarantee).
 mask = get_mask_batch(
-    A=attention_map,    # Wavelet attention map
-    l=0.1,              # Lower bound (all regions trained at least 10% of steps)
+    A=attention_map,    # Wavelet saliency map
+    l=0.3,              # Lower bound (all regions trained at least 30% of steps)
     T=1000,             # Total timesteps
     timesteps=t         # Current timestep
 )
@@ -380,7 +383,7 @@ masked_diff = mask * (predicted - target)
 loss = (weighting * masked_diff.pow(2)).mean()
 ```
 
-**Intuition:** High-frequency details emerge in the later stages of denoising. Our mask ensures the model focuses training capacity where it matters most.`
+**Intuition:** Regions with high wavelet energy (textures, edges) receive supervision across more diffusion timesteps, concentrating learning where structural detail matters most. The lower bound `l` ensures no region is ever completely ignored.
 
 ---
 
@@ -504,12 +507,14 @@ The `--wav_att_l_mask` parameter is **crucial** for controlling the training beh
 
 | `l` value | Behavior | Use Case |
 |-----------|----------|----------|
-| **0.05** | Aggressive high-frequency focus | High-detail datasets (textures, fine art) |
-| **0.1** ✓ | Balanced (recommended) | General purpose, most datasets |
-| **0.15** | Conservative refinement | Natural images, portraits |
-| **0.2** | Very gradual masking | Simple images, coarse details |
+| **0.1** | Aggressive high-frequency focus | High-detail datasets (textures, fine art) |
+| **0.3** ✓ | **Balanced (recommended, used in paper)** | General purpose, most datasets |
+| **0.5** | Conservative refinement | Natural images, portraits |
+| **0.7** | Very gradual masking — approaches uniform training | Simple images, coarse details |
 
-**Formula:** Each spatial location with attention value `A[i,j]` gets refined for `T * (A[i,j] + l)` timesteps.
+> **Note:** `l=0.3` is the value used in all paper experiments. The ablation study showed it yields the best FID, GLCM, and CLIPScore across the `{0.0, 0.1, 0.3, 0.5, 0.7}` sweep.
+
+**Formula:** Each spatial location with saliency value `A[i,j]` gets refined for `T * (A[i,j] + l)` timesteps.
 - Higher `l` → All regions trained more uniformly
 - Lower `l` → Sharper distinction between high/low frequency regions
 
@@ -677,6 +682,10 @@ for batch in dataloader:
 
 ## 📊 Results
 
+LWD is evaluated on two ultra-resolution benchmarks:
+- **Aesthetic-4K** — A curated 4K benchmark with GPT-4o-generated captions and high visual quality.
+- **LAION-High-Res** — A filtered subset of LAION-5B with 50K × 2K and 20K × 4K image-caption pairs.
+
 <p align="center">
   <img src='assets/results4kzoom_mix_page.jpg' width='100%' />
   <br>
@@ -731,9 +740,9 @@ Special thanks to the ICLR 2026 reviewers for their valuable feedback.
 
 <a href="https://star-history.com/#LuigiSigillo/LatentWaveletDiffusion&Date">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=LuigiSigillo/HighResolutionWav&type=Date&theme=dark" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=LuigiSigillo/HighResolutionWav&type=Date" />
-    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=LuigiSigillo/HighResolutionWav&type=Date" />
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=LuigiSigillo/LatentWaveletDiffusion&type=Date&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=LuigiSigillo/LatentWaveletDiffusion&type=Date" />
+    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=LuigiSigillo/LatentWaveletDiffusion&type=Date" />
   </picture>
 </a>
 
