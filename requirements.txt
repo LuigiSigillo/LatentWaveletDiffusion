@@ -16,3 +16,5 @@ torch_dct
 PyWavelets
 einops
 lpips
+gradio
+kernels
