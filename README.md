@@ -1,6 +1,12 @@
-<div align="center">
+<h2 align="center"> <a href="https://openreview.net/forum?id=5og80LMVxG">[ICLR 2026] Latent Wavelet Diffusion For Ultra-High-Resolution Image Synthesis</a></h2>
 
-# Latent Wavelet Diffusion For Ultra High-Resolution Image Synthesis
+<h3 align="center"><a href="https://luigisigillo.github.io/LWD-page">Project Page 🚀</a></h3>
+
+<div align="center"><img src="assets/teaser.jpg" width="90%"></div>
+
+<h5 align="center">If you like our project, please give us a star ⭐ on GitHub for the latest updates.</h5>
+
+<h5 align="center">
 
 [![ICLR 2026](https://img.shields.io/badge/ICLR-2026-blue.svg)](https://openreview.net/forum?id=5og80LMVxG)
 [![arXiv](https://img.shields.io/badge/arXiv-2506.00433-b31b1b.svg)](https://arxiv.org/abs/2506.00433)
@@ -11,64 +17,161 @@
 
 **[Luigi Sigillo](https://luigisigillo.github.io/)** · [Shengfeng He](https://shengfenghe.github.io/) · [Danilo Comminiello](https://danilocomminiello.site.uniroma1.it/)
 
-**ICLR 2026** | International Conference on Learning Representations
-
-</div>
+</h5>
 
 ---
 
-<p align="center">
-  <img src='assets/teaser.jpg' width='100%' />
-</p>
+## 📰 News
 
-## 🔥 Highlights
-
-- **🎯 Model-Agnostic Framework**: Apply to any diffusion architecture (SD3, DiT, FLUX)
-- **🌊 Wavelet-Based Training**: Frequency-aware loss masking for superior high-frequency detail
-- **📈 State-of-the-Art Quality**: Improved FID, LPIPS, and perceptual metrics at 2K/4K resolution
-- **⚡ Efficient Training**: Leverages pre-cached latents and adaptive masking
-- **🔧 Easy Integration**: Drop-in components for existing diffusion training pipelines
+* **[2026.04.25]** Code is now available! Welcome to **watch** 👀 this repository for the latest updates.
+* **[2026.01.26]** 🔥🔥🔥 Paper accepted at **ICLR 2026**! See you in Rio!
+* **[2025.09.15]** Preprint available on arXiv and submitted to **ICLR 2026**!
 
 ---
 
-## 📝 Abstract
+## 😮 Highlights
 
-**Latent Wavelet Diffusion (LWD)** is a lightweight, model-agnostic training framework that significantly improves detail and texture fidelity in ultra-high-resolution (2K–4K) image synthesis — **without architectural modifications and with zero additional inference cost**. LWD introduces a frequency-aware masking strategy derived from wavelet energy maps that dynamically focuses training on detail-rich regions of the latent space, complemented by a scale-consistent VAE objective for high spectral fidelity. Our approach consists of three components applied in sequence:
+### ⚡ Zero Inference Overhead — Plug-and-Play into Any Diffusion Model
 
-1. **VAE Spectral Enhancement** - Fine-tunes the VAE with a multi-scale scale-consistency loss (L2 reconstruction + KL regularization + LPIPS + scale-consistency), producing a regularized latent space where high-frequency energy corresponds to meaningful structure rather than noise
-2. **Wavelet-Derived Saliency Maps** - Applies a single-level DWT to the latent representation and aggregates the energy of the high-frequency subbands (LH, HL, HH) into a spatial saliency map that highlights structurally rich regions
-3. **Frequency-Guided Loss Masking** - Applies a time-dependent binary mask so that high-frequency regions receive supervision across *more* diffusion timesteps, while smooth regions are updated less frequently — concentrating learning capacity where detail matters most
+LWD is a **training-only** modification. It requires **no architectural changes** and adds **zero additional cost at inference time** — an LWD-enhanced model has the exact same parameter count and identical inference speed as its baseline counterpart. This makes it a practical, low-risk improvement for any existing latent diffusion pipeline (FLUX, SD3, Sana, PixArt-Σ, and beyond).
 
+### 🌊 Signal-Driven Supervision: No Learned Attention Required
+
+Instead of learning which regions matter, LWD computes a **Discrete Wavelet Transform (DWT)** of the latent tensor and reads structural importance directly from the signal. The aggregated energy of the high-frequency subbands (LH, HL, HH) produces an interpretable, parameter-free saliency map — no extra modules, no extra training, just signal processing.
+
+### 🔥 Consistent SOTA Improvements at 2K and 4K Resolution
+
+LWD consistently improves FID, LPIPS, and perceptual quality across multiple strong baselines at both 2K and 4K resolution. As a bonus, the frequency-aware supervision **accelerates convergence**: LWD-enhanced models reach the quality of their baselines in only **10–50% of the original training iterations**.
 
 ---
 
-## 📑 Table of Contents
+## 🚀 Main Results
 
-- [🔥 Highlights](#-highlights)
-- [📝 Abstract](#-abstract)
-<!-- - [⚡ Quick Start](#-quick-start) -->
-<!-- - [📂 Project Structure](#-project-structure) -->
-- [🛠️ Installation](#️-installation)
-- [🚀 Pipeline Overview](#-pipeline-overview)
-- [🧬 Method Details](#-method-details)
-- [🔄 Applying to Other Models](#-applying-to-other-diffusion-models)
-- [💻 Hardware Requirements](#-hardware-requirements)
-- [📊 Results](#-results)
-- [📖 Citation](#-citation)
-- [🙏 Acknowledgements](#-acknowledgements)
-- [📄 License](#-license)
+<div align="center"><img src="assets/results4kzoom_mix_page.jpg" width="90%"></div>
 
+<p align="center"><em>4K image generation with LWD paired with different architectures. LWD consistently sharpens textures and fine details without over-sharpening or introducing artifacts.</em></p>
+
+Evaluated on two ultra-resolution benchmarks:
+- **Aesthetic-4K** — A curated 4K benchmark with GPT-4o-generated captions and high visual quality.
+- **LAION-High-Res** — A filtered subset of LAION-5B with 50K × 2K and 20K × 4K image-caption pairs.
+
+---
+
+## ✨ Takeaway Functions
+
+The entire LWD training strategy reduces to **two functions** that can be dropped into any diffusion training script.
+
+### `compute_wavelet_attention`
+
+Computes a spatial saliency map from a latent tensor by aggregating the energy of the DWT high-frequency subbands:
+
+```python
+import torch.nn.functional as F
+from pytorch_wavelets import DWTForward
+
+def compute_wavelet_attention(latents, dwt):
+    """
+    Compute a wavelet-based saliency map from latent codes.
+
+    Args:
+        latents:  (B, C, H, W) latent tensor
+        dwt:      DWTForward instance (J=1, wave='haar')
+
+    Returns:
+        A:  (B, H, W) saliency map in [0, 1]
+            Higher values = more high-frequency content (textures, edges)
+    """
+    _, highs = dwt(latents)                          # highs[0]: (B, C, 3, H/2, W/2)
+    lh, hl, hh = highs[0].unbind(dim=2)             # directional subbands
+
+    # Aggregate energy across channels
+    energy = (lh.pow(2) + hl.pow(2) + hh.pow(2)).mean(dim=1)  # (B, H/2, W/2)
+
+    # Upsample back to latent resolution
+    energy = F.interpolate(energy.unsqueeze(1), size=latents.shape[-2:],
+                           mode='bilinear', align_corners=False).squeeze(1)
+
+    # Min-max normalize per sample
+    mn = energy.flatten(1).min(1).values[:, None, None]
+    mx = energy.flatten(1).max(1).values[:, None, None]
+    return (energy - mn) / (mx - mn + 1e-8)
+```
+
+- **DWT** decomposes the latent into LL (approximation) and LH, HL, HH (directional details).
+- **Energy** of the three detail subbands acts as a proxy for local structural complexity.
+- **Normalization** is per-sample, making the map data-adaptive across the batch.
+
+---
+
+### `get_mask_batch`
+
+Given the saliency map and the current diffusion timestep, generates the binary supervision mask:
+
+```python
+def get_mask_batch(A, l, T, timesteps):
+    """
+    Compute a time-dependent binary mask for spatially adaptive loss.
+
+    Formula:  M_t(i,j) = 1  if  T * (A[i,j] + l) >= t,  else 0
+
+    High-saliency regions stay supervised across MORE timesteps.
+    All regions receive at least l*T steps of supervision (lower-bound guarantee).
+
+    Args:
+        A:          (B, H, W) saliency map in [0, 1]
+        l:          float in (0, 1) — lower bound (recommended: 0.3)
+        T:          int — total diffusion timesteps (e.g. 1000)
+        timesteps:  (B,) current timesteps
+
+    Returns:
+        M:  (B, 1, H, W) binary mask
+    """
+    threshold = T * (A + l)                        # (B, H, W)
+    t = timesteps[:, None, None].float()           # (B, 1, 1)
+    return (threshold >= t).float().unsqueeze(1)   # (B, 1, H, W)
+```
+
+- **`l = 0.3`** is the value used in all paper experiments.
+- Low-saliency regions still receive at least `l × T = 300` supervision steps.
+- High-saliency regions receive up to `T` steps — more focused, richer training signal.
+
+---
+
+### 🧐 How to Use Them in Practice
+
+```python
+from pytorch_wavelets import DWTForward
+
+# ── Setup (once, before training loop) ──────────────────────────────────────
+dwt = DWTForward(J=1, wave="haar").to(device)
+
+# ── Inside training loop ─────────────────────────────────────────────────────
+# noisy_latents: (B, C, H, W)  — noisy input to the diffusion model
+# model_pred:    (B, C, H, W)  — model output (predicted velocity / noise)
+# target:        (B, C, H, W)  — ground truth target
+# timesteps:     (B,)          — current diffusion timesteps
+# weighting:     (B, 1, 1, 1)  — optional SNR weighting
+
+# 1. Compute wavelet saliency map
+A = compute_wavelet_attention(noisy_latents, dwt)           # (B, H, W)
+
+# 2. Compute time-dependent binary mask
+M = get_mask_batch(A, l=0.3, T=1000, timesteps=timesteps)  # (B, 1, H, W)
+
+# 3. Apply masked loss
+masked_diff = M * (model_pred - target)
+loss = (weighting * masked_diff.pow(2)).mean()
+```
+
+The full masked flow-matching objective from the paper:
+
+$$\mathcal{L}_{\text{masked}} = \left\| M_t \odot \left[ (\epsilon - z_0) - v_\Theta(z_t, t, y) \right] \right\|_2^2$$
+
+---
 
 ## 🛠️ Installation
 
-### Prerequisites
-
-- Python 3.10+
-- CUDA-compatible GPU (24GB+ VRAM recommended for 2K, 48GB+ for 4K)
-- PyTorch 2.1.0+
-- CUDA 11.8 or higher
-
-### Setup
+**Prerequisites:** Python 3.12+, CUDA 11.8+, PyTorch 2.1+, GPU with 32GB+ VRAM (48GB+ for 4K)
 
 ```bash
 # Clone the repository
@@ -88,17 +191,16 @@ pip install -e src/pytorch_wavelets/
 
 ---
 
-## 🚀 Pipeline Overview
+## 🔄 Pipeline Overview
 
-The complete pipeline consists of 5 stages:
+The complete LWD pipeline consists of 5 stages:
 
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐     ┌─────────────────┐    ┌────────────────┐
 │  1. VAE         │    │  2. Cache       │    │  3. Train       │     │  4. Evaluation  │    │  5. Inference  │
 │  Fine-tuning    │───▶│  Latents &      │───▶│  with Wavelet  │───▶│                 │───▶│                │
 │  (Optional)     │    │  Embeddings     │    │  Masking        │     │                 │    │                │
-└─────────────────┘    └─────────────────┘    └─────────────────┘     └─────────────────┘    └────────────────┘ 
-
+└─────────────────┘    └─────────────────┘    └─────────────────┘     └─────────────────┘    └────────────────┘
 ```
 
 <details>
@@ -146,7 +248,6 @@ export NUM_WORKERS=2
 export DATA_DIR="/path/to/your/dataset"
 export MODEL_NAME="black-forest-labs/FLUX.1-dev"
 
-# Run caching
 bash src/batch_scripts/cache_prompt_embeds.sh
 ```
 
@@ -160,36 +261,24 @@ export OUTPUT_DIR="/path/to/latents"
 export MODEL_NAME="black-forest-labs/FLUX.1-dev"  # or your fine-tuned VAE
 export RESOLUTION=2048  # target resolution
 
-# Run caching
 bash src/batch_scripts/cache_latent_codes.sh
 ```
 
 **Data Format:**
-
-Your dataset should be organized as:
 ```
 dataset/
 ├── image_0.jpg
 ├── image_0.json          # {"prompt": "...", "generated_prompt": "..."}
-├── image_1.jpg
-├── image_1.json
-└── ...
-```
-
-After caching:
-```
-dataset/
-├── image_0.jpg
-├── image_0.json
-├── image_0_latent_code.safetensors      # VAE latents
-├── image_0_prompt_embed.safetensors     # T5+CLIP embeddings
+├── image_0_latent_code.safetensors      # added after caching
+├── image_0_prompt_embed.safetensors     # added after caching
 ├── image_0_generated_prompt_embed.safetensors
 └── ...
 ```
 
-### Step 3: Training with Wavelet
+### Step 3: Training with Wavelet Masking
 
 Train the diffusion model with our wavelet-based frequency-adaptive loss.
+
 <p align="center">
   <img src='assets/arch.png' width='100%' />
 </p>
@@ -201,7 +290,6 @@ export DATA_DIR="/path/to/dataset"
 export LATENT_CODE_DIR="/path/to/cached/latents"
 export OUTPUT_DIR="/path/to/checkpoints"
 
-# Run training
 bash src/batch_scripts/train_2k.sh
 ```
 
@@ -210,36 +298,16 @@ bash src/batch_scripts/train_2k.sh
 | Argument | Description | Default |
 |----------|-------------|---------|
 | `--wavelet_attention` | **Enable wavelet-based loss masking** | `True` |
+| `--wav_att_l_mask` | Masking lower bound `l` (see ablation) | `0.3` |
 | `--latent_code_dir` | Directory with cached latents | None |
 | `--train_batch_size` | Batch size per GPU | 1 |
 | `--max_train_steps` | Total training iterations | 2000 |
 | `--gradient_checkpointing` | Enable to save VRAM | `False` |
 | `--real_prompt_ratio` | Ratio of original vs VLM prompts | 0.2 |
-<!-- | `--pretrained_vae_path` | Path to fine-tuned VAE | None | -->
-
-
-<!-- **Example SLURM script (for HPC clusters):**
-
-```bash
-#!/bin/bash
-#SBATCH --nodes=1
-#SBATCH --gres=gpu:4
-#SBATCH --time=24:00:00
-
-accelerate launch --num_processes 4 --multi_gpu --mixed_precision bf16 \
-    src/train_2k.py \
-    --pretrained_model_name_or_path="black-forest-labs/FLUX.1-dev" \
-    --dataset_root=$DATA_DIR \
-    --output_dir=$OUTPUT_DIR \
-    --wavelet_attention \
-    --train_batch_size=1 \
-    --max_train_steps=2000 \
-    --gradient_checkpointing
-``` -->
 
 ### Step 4: Evaluation
 
-We provide evaluation scripts for both 2K and 4K resolutions using multiple benchmarks.
+We provide evaluation scripts for both 2K and 4K resolutions.
 
 | Metric | Type | Description |
 |--------|------|-------------|
@@ -250,9 +318,8 @@ We provide evaluation scripts for both 2K and 4K resolutions using multiple benc
 | **HPSv2** | Text-image | Human Preference Score v2 |
 | **PickScore** | Text-image | Preference learning score |
 
-#### 4a. Evaluate 2K Models (`eval_v2.py`)
-
-For 2K resolution models, we support HPDv2 and DPG benchmarks.
+<details>
+<summary><b>4a. Evaluate 2K Models (eval_v2.py)</b></summary>
 
 ```bash
 # Generate images for HPDv2 test set
@@ -262,9 +329,7 @@ python src/eval_v2.py \
     --output_dir="/path/to/output" \
     --checkpoint_path="/path/to/checkpoint-2000" \
     --cache_dir=$HF_HOME \
-    --height=2048 \
-    --width=2048 \
-    --seed=42
+    --height=2048 --width=2048 --seed=42
 
 # Generate images for DPG benchmark
 python src/eval_v2.py \
@@ -274,7 +339,7 @@ python src/eval_v2.py \
     --checkpoint_path="/path/to/checkpoint-2000" \
     --cache_dir=$HF_HOME
 
-# Calculate metrics on generated images
+# Calculate metrics
 python src/eval_v2.py \
     --calculate_metrics \
     --generated_folder="/path/to/generated/images" \
@@ -282,276 +347,105 @@ python src/eval_v2.py \
     --cache_dir=$HF_HOME
 ```
 
-**Key arguments for `eval_v2.py`:**
-
 | Argument | Description |
 |----------|-------------|
 | `--generate_hpdv2_testset` | Generate images for HPDv2 benchmark |
 | `--generate_dpg_testset` | Generate images for DPG benchmark |
 | `--calculate_metrics` | Compute FID, PickScore, QualiCLIP, MAN-IQA, HPSv2 |
-| `--json_file` | Path to HPDv2 test JSON file |
-| `--prompt_folder_dpg` | Path to DPG benchmark prompts folder |
 | `--checkpoint_path` | Path to trained checkpoint |
 | `--height`, `--width` | Resolution (default: 2048×2048) |
 
-#### 4b. Evaluate 4K Models (`eval_4k.py`)
+</details>
 
-For 4K resolution models, we use the HPSv2 benchmark with parallel multi-GPU generation.
+<details>
+<summary><b>4b. Evaluate 4K Models (eval_4k.py)</b></summary>
 
 ```bash
 # Generate and evaluate 4K images (uses all available GPUs)
 python src/eval_4k.py \
     --checkpoint_path="/path/to/4k/checkpoint/adapter_weights.safetensors" \
     --generate \
-    --height=4096 \
-    --width=4096 \
-    --seed=8888 \
+    --height=4096 --width=4096 --seed=8888 \
     --cache_dir=$HF_HOME
 
 # Generate for a specific style only
 python src/eval_4k.py \
     --checkpoint_path="/path/to/4k/checkpoint/adapter_weights.safetensors" \
-    --generate \
-    --style="anime" \
-    --height=4096 \
-    --width=4096 \
+    --generate --style="anime" \
+    --height=4096 --width=4096 \
     --cache_dir=$HF_HOME
 ```
 
-**Key arguments for `eval_4k.py`:**
-
-| Argument | Description |
-|----------|-------------|
-| `--checkpoint_path` | Path to 4K adapter weights (`.safetensors`) |
-| `--generate` | Enable image generation |
-| `--style` | Generate for specific style only (anime, concept-art, paintings, photo) |
-| `--height`, `--width` | Resolution (default: 4096×4096) |
-| `--cache_dir` | HuggingFace cache directory |
-
 **Supported styles:** `anime`, `concept-art`, `paintings`, `photo`
 
-
+</details>
 
 ### Step 5: Inference
 
-For running inference, please use the Jupyter notebooks provided in the [`src/inference_nb/`](src/inference_nb/) folder. The notebook contains step-by-step instructions for generating images using the trained model.
-
-
-## 🧬 Method Details
-
-### Wavelet Attention Mechanism
-
-We use Discrete Wavelet Transform (DWT) to identify high-frequency regions in the latent space:
-
-```python
-from pytorch_wavelets import DWTForward
-from src.new_wav_attn_maps import compute_wavelet_attention
-
-# Initialize DWT
-dwt = DWTForward(J=1, wave="haar")
-
-# Compute attention map from latents
-# Returns attention values in [0, 1] where higher = more high-frequency content
-attention_map = compute_wavelet_attention(latent_tensor, dwt)  # (B, H, W)
-```
-
-**How it works:**
-1. Apply 2D DWT to decompose latent into LL (low-freq) and LH, HL, HH (high-freq) subbands
-2. Compute energy (squared magnitude) of high-frequency subbands
-3. Normalize to create attention map indicating regions with rich detail
-
-### Wavelet-Based Loss Masking
-
-During training, we apply time-dependent masking to focus on high-frequency regions:
-
-```python
-from src.new_wav_attn_maps import get_mask_batch
-
-# Get binary mask based on timestep and attention map
-# M_t(i,j) = 1 if T * (A[i,j] + l) >= t, else 0
-# High-frequency regions (high A) remain supervised across MORE timesteps.
-# All regions receive at least l*T steps of supervision (lower bound guarantee).
-mask = get_mask_batch(
-    A=attention_map,    # Wavelet saliency map
-    l=0.3,              # Lower bound (all regions trained at least 30% of steps)
-    T=1000,             # Total timesteps
-    timesteps=t         # Current timestep
-)
-
-# Apply masked loss
-masked_diff = mask * (predicted - target)
-loss = (weighting * masked_diff.pow(2)).mean()
-```
-
-**Intuition:** Regions with high wavelet energy (textures, edges) receive supervision across more diffusion timesteps, concentrating learning where structural detail matters most. The lower bound `l` ensures no region is ever completely ignored.
+For running inference, please use the Jupyter notebooks provided in the [`src/inference_nb/`](src/inference_nb/) folder.
 
 ---
 
-## 🔄 Applying to Other Diffusion Models
+## 🔌 Applying to Other Diffusion Models
 
-Our method is designed to be **model-agnostic** and can be integrated into any diffusion training pipeline. This repository demonstrates the technique using **URAE** as a baseline for high-resolution adaptation with FLUX, but the same wavelet-based frequency masking can be applied to SDXL, DiT, Sana, or any other diffusion architecture.
+LWD is **model-agnostic** and integrates into any latent diffusion training pipeline in 4 steps.
 
-### 📋 Step-by-Step Integration Guide
+### Step-by-Step Integration
 
-#### **Step 1: Copy Required Files to Your Project**
-
-Copy these two essential files to your training repository:
-
+**1. Copy required files:**
 ```bash
-# Copy the wavelet attention implementation
 cp src/new_wav_attn_maps.py /path/to/your/project/
-
-#install pytorch-wavelet as a package
-cd src/
-git clone https://github.com/fbcotter/pytorch_wavelets
-pip install PyWavelets>=1.0.0
 pip install -e src/pytorch_wavelets/
 ```
 
-**Required files:**
-- `new_wav_attn_maps.py` - Contains `compute_wavelet_attention()` and `get_mask_batch()` functions
-- `pytorch_wavelets/` - PyTorch DWT implementation
-
-#### **Step 2: Add Command-Line Argument**
-
-Add a flag to enable/disable wavelet attention in your training script:
-
+**2. Add arguments to your training script:**
 ```python
-parser.add_argument(
-    "--wavelet_attention",
-    action="store_true",
-    help="Enable wavelet-based frequency-adaptive loss masking"
-)
-parser.add_argument(
-    "--wav_att_l_mask",
-    type=float,
-    default=0.3,
-    help="Lower bound for wavelet attention mask. Controls the minimum fraction of "
-         "training steps for each region. Higher values (e.g., 0.2) = more conservative, "
-         "lower values (e.g., 0.05) = more aggressive high-frequency focus. (default: 0.3)"
-)
+parser.add_argument("--wavelet_attention", action="store_true",
+    help="Enable wavelet-based frequency-adaptive loss masking")
+parser.add_argument("--wav_att_l_mask", type=float, default=0.3,
+    help="Lower bound for wavelet attention mask (default: 0.3)")
 ```
 
-#### **Step 3: Initialize DWT Before Training Loop**
-
-Add this initialization **before your training loop starts**:
-
+**3. Initialize DWT before the training loop:**
 ```python
-# Add after model initialization, before training loop
 if args.wavelet_attention:
-    print("✓ Wavelet attention enabled")
     from new_wav_attn_maps import compute_wavelet_attention, get_mask_batch
     from pytorch_wavelets import DWTForward
-    
-    # Initialize Discrete Wavelet Transform
     dwt = DWTForward(J=1, wave="haar").to(accelerator.device)
 ```
 
-**Location in our code:** See [train_2k.py:L779-L783](src/train_2k.py#L779-L783)
-
-#### **Step 4: Modify Loss Computation in Training Loop**
-
-Locate the loss computation in your training loop and modify it as follows:
-
-**Before (Standard Loss):**
+**4. Replace the loss computation:**
 ```python
-# Original loss computation
-loss = F.mse_loss(model_pred, target)
-# or
-loss = ((model_pred - target) ** 2).mean()
-```
-
-**After (With Wavelet Attention):**
-```python
-# Compute loss with wavelet-based masking
-if not args.wavelet_attention:
-    # Standard loss (unchanged)
-    loss = (weighting * (model_pred - target) ** 2).mean()
+if args.wavelet_attention:
+    A, _ = compute_wavelet_attention(noisy_latents, dwt)       # (B, H, W)
+    M, _ = get_mask_batch(A, l=args.wav_att_l_mask,
+                          T=scheduler.num_train_timesteps,
+                          timesteps=timesteps)                  # (B, 1, H, W)
+    loss = (weighting * (M * (model_pred - target)).pow(2)).mean()
 else:
-    # Wavelet-based frequency-adaptive loss
-    # 1. Compute wavelet attention map from noisy latents
-    A, _ = compute_wavelet_attention(noisy_latents, dwt)  # shape: (B, H, W)
-    
-    # 2. Generate time-dependent binary mask
-    M, _ = get_mask_batch(
-        A, 
-        l=args.wav_att_l_mask,              # Lower bound (e.g., 0.1)
-        T=scheduler.num_train_timesteps,     # Total timesteps (e.g., 1000)
-        timesteps=timesteps                  # Current timesteps (B,)
-    )  # shape: (B, 1, H, W)
-    
-    # 3. Apply mask to loss
-    masked_diff = M * (model_pred - target)  # Element-wise masking
-    loss = (weighting * masked_diff.pow(2)).mean()
+    loss = (weighting * (model_pred - target).pow(2)).mean()
 ```
 
-**Location in our code:** See [train_2k.py:L890-L901](src/train_2k.py#L890-L901)
-
-### 🔍 Understanding the Key Modifications
-
-#### **What `compute_wavelet_attention()` does:**
-1. Applies 2D DWT to decompose latents into frequency subbands (LL, LH, HL, HH)
-2. Computes energy of high-frequency subbands (LH, HL, HH)
-3. Returns normalized attention map (B, H, W) where higher values = more high-frequency content
-
-#### **What `get_mask_batch()` does:**
-1. Takes attention map `A` and current timesteps `t`
-2. Computes threshold: `T * (A + l)` for each spatial location
-3. Creates binary mask: `M = 1` where `threshold >= t`, else `M = 0`
-4. **Effect:** Early in denoising (high t), only low-frequency regions are refined. Late in denoising (low t), high-frequency regions are refined.
-5. **Parameter `l` (tunable):** Controls minimum training steps per region. Typical range: 0.05-0.2
-
-### 🎛️ Tuning the `l` Parameter
-
-The `--wav_att_l_mask` parameter is **crucial** for controlling the training behavior:
-
-| `l` value | Behavior | Use Case |
-|-----------|----------|----------|
-| **0.1** | Aggressive high-frequency focus | High-detail datasets (textures, fine art) |
-| **0.3** ✓ | **Balanced (recommended, used in paper)** | General purpose, most datasets |
-| **0.5** | Conservative refinement | Natural images, portraits |
-| **0.7** | Very gradual masking — approaches uniform training | Simple images, coarse details |
-
-> **Note:** `l=0.3` is the value used in all paper experiments. The ablation study showed it yields the best FID, GLCM, and CLIPScore across the `{0.0, 0.1, 0.3, 0.5, 0.7}` sweep.
-
-**Formula:** Each spatial location with saliency value `A[i,j]` gets refined for `T * (A[i,j] + l)` timesteps.
-- Higher `l` → All regions trained more uniformly
-- Lower `l` → Sharper distinction between high/low frequency regions
-
-### 📝 Integration Examples for Different Architectures
+### Architecture-Specific Examples
 
 <details>
-<summary><b>FLUX.1 (Flow Matching) - This Repository</b></summary>
+<summary><b>FLUX.1 (Flow Matching) — This Repository</b></summary>
 
 ```python
-# In your FLUX training loop (as demonstrated in this repo with URAE)
 if args.wavelet_attention:
     from new_wav_attn_maps import compute_wavelet_attention, get_mask_batch
     from pytorch_wavelets import DWTForward
     dwt = DWTForward(J=1, wave="haar").to(device)
 
-# Training loop
 for batch in dataloader:
-    # ... [standard FLUX training code] ...
-    
-    # Flow matching target
-    target = noise - model_input
-    
+    target = noise - model_input  # flow matching target
+
     if args.wavelet_attention:
-        # Compute wavelet attention from noisy latents
         A, _ = compute_wavelet_attention(noisy_model_input, dwt)
-        
-        # Generate adaptive mask with tunable l parameter
-        M, _ = get_mask_batch(
-            A, 
-            l=args.wav_att_l_mask,              # PARAMETRIC: tune between 0.05-0.2
-            T=scheduler.num_train_timesteps,     # e.g., 1000
-            timesteps=timesteps
-        )
-        
-        # Flow matching loss with mask
-        masked_diff = M * (model_pred - target)
-        loss = (weighting * masked_diff.pow(2)).mean()
+        M, _ = get_mask_batch(A, l=args.wav_att_l_mask,
+                              T=scheduler.num_train_timesteps,
+                              timesteps=timesteps)
+        loss = (weighting * (M * (model_pred - target)).pow(2)).mean()
     else:
         loss = (weighting * (model_pred - target) ** 2).mean()
 ```
@@ -561,64 +455,20 @@ for batch in dataloader:
 </details>
 
 <details>
-<summary><b>Sana/PixArt-Sigma (DiT)</b></summary>
+<summary><b>Sana / PixArt-Sigma (DiT)</b></summary>
 
 ```python
-# In your Sana training script setup
-def initialize_wavelet_attention(args, device):
-    """Initialize wavelet attention components if enabled."""
-    if args.wavelet_attention:
-        print("Wavelet attention is enabled")
-        from pytorch_wavelets import DWTForward
-        dwt = DWTForward(J=1, wave="haar").to(device)
-        return dwt
-    return None
-
 # Before training loop
-dwt = initialize_wavelet_attention(args, accelerator.device)
+dwt = DWTForward(J=1, wave="haar").to(accelerator.device) if args.wavelet_attention else None
 
-# Training loop
-for batch in dataloader:
-    # ... [standard Sana training code] ...
-
-    with accelerator.accumulate(model):
-        optimizer.zero_grad()
-
-        # Pass dwt through model_kwargs to the diffusion loss function
-        loss_term = train_diffusion.training_losses(
-            model,
-            clean_images,
-            timesteps,
-            model_kwargs=dict(
-                y=y,
-                mask=y_mask,
-                data_info=data_info,
-                dwt=dwt  # Pass dwt object
-            )
-        )
-        loss = loss_term["loss"].mean()
-        accelerator.backward(loss)
-
-# In gaussian_diffusion.py (diffusion model class)
-def training_losses(self, model, x_start, t, model_kwargs=None, noise=None):
-    # ... [standard diffusion code] ...
-
-    terms = {}
-    if model_kwargs.get("dwt", None) is not None:
-        from .new_wav_attn_maps import compute_wavelet_attention, get_mask_batch
-
-        # Compute wavelet attention from noisy input
-        A = compute_wavelet_attention(x_t, model_kwargs.get("dwt"))  # shape: (B, H, W)
-        M = get_mask_batch(A, l=0.3, T=self.num_timesteps, timesteps=t)
-
-    # ... [model prediction code] ...
-
-    # Compute loss with wavelet mask
-    if model_kwargs.get("dwt", None) is not None:
-        masked_diff = M * (output - target)  # shape (B, C, H, W)
-        terms["mse"] = mean_flat(masked_diff.pow(2))
-    else:
-        terms["mse"] = mean_flat(loss)
+# In gaussian_diffusion.py — training_losses()
+if model_kwargs.get("dwt") is not None:
+    from .new_wav_attn_maps import compute_wavelet_attention, get_mask_batch
+    A = compute_wavelet_attention(x_t, model_kwargs["dwt"])
+    M = get_mask_batch(A, l=0.3, T=self.num_timesteps, timesteps=t)
+    terms["mse"] = mean_flat((M * (output - target)).pow(2))
+else:
+    terms["mse"] = mean_flat(loss)
 ```
 
 </details>
@@ -627,70 +477,29 @@ def training_losses(self, model, x_start, t, model_kwargs=None, noise=None):
 <summary><b>Stable Diffusion 3 (Diffusion4K)</b></summary>
 
 ```python
-# In your SD3 training loop
-if args.wavelet_attention:
-    from new_wav_attn_maps import compute_wavelet_attention, get_mask_batch
-    from pytorch_wavelets import DWTForward
-    dwt = DWTForward(J=1, wave="haar").to(device)
-
-# Training loop
 for batch in dataloader:
-    # ... [standard SD3 training code] ...
-
-    # Flow matching target (SD3 uses flow matching like FLUX)
-    target = model_input
+    target = model_input  # SD3 flow matching
 
     if args.wavelet_attention:
-        # Compute wavelet attention from noisy latents
-        A = compute_wavelet_attention(noisy_model_input, dwt)  # shape: (B, H, W)
-
-        # Generate adaptive mask with tunable l parameter
-        M = get_mask_batch(
-            A,
-            l=args.wav_att_l_mask,              # PARAMETRIC: tune between 0.05-0.2
-            T=noise_scheduler.config.num_train_timesteps,  # e.g., 1000
-            timesteps=timesteps
-        )
-
-        # Flow matching loss with mask
-        masked_diff = M * (model_pred - target)
-        loss = (weighting.float() * masked_diff.pow(2)).mean()
+        A = compute_wavelet_attention(noisy_model_input, dwt)
+        M = get_mask_batch(A, l=args.wav_att_l_mask,
+                           T=noise_scheduler.config.num_train_timesteps,
+                           timesteps=timesteps)
+        loss = (weighting.float() * (M * (model_pred - target)).pow(2)).mean()
     else:
-        loss = torch.mean(
-            (weighting.float() * (model_pred.float() - target.float()) ** 2).reshape(target.shape[0], -1),
-            1,
-        )
-        loss = loss.mean()
+        loss = (weighting.float() * (model_pred - target).float() ** 2).mean()
 ```
 
 </details>
 
+### ✅ Integration Checklist
 
-### ✅ Checklist for Integration
-
-- [ ] Copy `new_wav_attn_maps.py` to your project
-- [ ] Install or copy `pytorch_wavelets/`
-- [ ] Add `--wavelet_attention` and `--wav_att_l_mask` arguments to training script
-- [ ] Initialize `DWTForward` before training loop (with `if args.wavelet_attention:`)
-- [ ] Locate loss computation in training loop
-- [ ] Add conditional wavelet attention loss computation
-- [ ] Test with `--wavelet_attention` flag enabled
-- [ ] **Tune `--wav_att_l_mask` parameter** 
-- [ ] Monitor training: check if high-frequency details improve
-
-
-
-## 📊 Results
-
-LWD is evaluated on two ultra-resolution benchmarks:
-- **Aesthetic-4K** — A curated 4K benchmark with GPT-4o-generated captions and high visual quality.
-- **LAION-High-Res** — A filtered subset of LAION-5B with 50K × 2K and 20K × 4K image-caption pairs.
-
-<p align="center">
-  <img src='assets/results4kzoom_mix_page.jpg' width='100%' />
-  <br>
-  <em>Comparison of high-frequency detail preservation. Our method generates sharper textures and finer details.</em>
-</p>
+- [ ] Copy `new_wav_attn_maps.py` and install `pytorch_wavelets`
+- [ ] Add `--wavelet_attention` and `--wav_att_l_mask` arguments
+- [ ] Initialize `DWTForward` before the training loop
+- [ ] Replace loss computation with wavelet-masked version
+- [ ] Start with `l=0.3` and tune if needed
+- [ ] Monitor: FID should improve; high-frequency texture metrics (GLCM) should stay stable or improve
 
 ---
 
@@ -699,8 +508,7 @@ LWD is evaluated on two ultra-resolution benchmarks:
 If you find this work useful, please cite our ICLR 2026 paper:
 
 ```bibtex
-@inproceedings{
-sigillo2026latent,
+@inproceedings{sigillo2026latent,
 title={Latent Wavelet Diffusion For Ultra High-Resolution Image Synthesis},
 author={Luigi Sigillo and Shengfeng He and Danilo Comminiello},
 booktitle={The Fourteenth International Conference on Learning Representations},
@@ -709,7 +517,7 @@ url={https://openreview.net/forum?id=5og80LMVxG}
 }
 ```
 
-This work builds upon URAE as a baseline for demonstrating model-agnostic wavelet-based training. Please also consider citing:
+This work builds upon URAE as a baseline. Please also consider citing:
 
 ```bibtex
 @article{yu2025urae,
@@ -724,13 +532,13 @@ This work builds upon URAE as a baseline for demonstrating model-agnostic wavele
 
 ## 🙏 Acknowledgements
 
-We thank the authors and contributors of the following projects:
+We thank the authors and contributors of:
 
-- **[URAE](https://github.com/Huage001/URAE)** - For the high-resolution adaptation baseline that we build upon
-- **[FLUX](https://blackforestlabs.ai/)** - For the state-of-the-art diffusion model architecture
-- **[pytorch_wavelets](https://github.com/fbcotter/pytorch_wavelets)** - For efficient DWT implementation
-- **[Hugging Face Diffusers](https://github.com/huggingface/diffusers)** - For the excellent training infrastructure
-- **[patch_conv](https://github.com/mit-han-lab/patch_conv)** - For memory-efficient VAE operations
+- **[URAE](https://github.com/Huage001/URAE)** — High-resolution adaptation baseline
+- **[FLUX](https://blackforestlabs.ai/)** — State-of-the-art flow-matching diffusion backbone
+- **[pytorch_wavelets](https://github.com/fbcotter/pytorch_wavelets)** — Efficient DWT implementation
+- **[Hugging Face Diffusers](https://github.com/huggingface/diffusers)** — Training infrastructure
+- **[patch_conv](https://github.com/mit-han-lab/patch_conv)** — Memory-efficient VAE operations
 
 Special thanks to the ICLR 2026 reviewers for their valuable feedback.
 
@@ -750,4 +558,4 @@ Special thanks to the ICLR 2026 reviewers for their valuable feedback.
 
 ## 📄 License
 
-This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the Apache License 2.0 — see the [LICENSE](LICENSE) file for details.
