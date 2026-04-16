@@ -7,6 +7,8 @@
 <h5 align="center">If you like our project, please give us a star ⭐ on GitHub for the latest updates.</h5>
 
 <h5 align="center">
+    
+![](https://api.visitorbadge.io/api/VisitorHit?user=luigisigillo&repo=latentwaveletdifffusion&countColor=%237B1E7A)
 
 [![ICLR 2026](https://img.shields.io/badge/ICLR-2026-blue.svg)](https://openreview.net/forum?id=5og80LMVxG)
 [![arXiv](https://img.shields.io/badge/arXiv-2506.00433-b31b1b.svg)](https://arxiv.org/abs/2506.00433)
@@ -14,6 +16,7 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-yellow.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.1+-ee4c2c.svg)](https://pytorch.org/)
+![visitor badge](https://visitor-badge.laobi.icu/badge?page_id=LuigiSigillo.LatentWaveletDiffusion&format=true)
 
 **[Luigi Sigillo](https://luigisigillo.github.io/)** · [Shengfeng He](https://shengfenghe.github.io/) · [Danilo Comminiello](https://danilocomminiello.site.uniroma1.it/)
 
