@@ -549,12 +549,12 @@ Special thanks to the ICLR 2026 reviewers for their valuable feedback.
 
 ## 🌟 Star History
 
-<a href="https://star-history.com/#LuigiSigillo/LatentWaveletDiffusion&Date">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=LuigiSigillo/LatentWaveletDiffusion&type=Date&theme=dark" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=LuigiSigillo/LatentWaveletDiffusion&type=Date" />
-    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=LuigiSigillo/LatentWaveletDiffusion&type=Date" />
-  </picture>
+<a href="https://www.star-history.com/?repos=LuigiSigillo%2FLatentWaveletDiffusion&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=LuigiSigillo/LatentWaveletDiffusion&type=date&theme=dark&legend=top-left&sealed_token=lQse2PNlzuLDmGiwN3wocfB7ZxM0tjt8St_CUxkkx04zIt1_tAd8Sxk9dSsWHpEiGo9CoUHaLvibkf7YgwWCQwYUM8RIhNAz7rhsW1NIKcHCgzu0Qb1A7_9S_SOXPkilU8bkW_1pAtAUyILfks1uce4x9jdEbHPj2DcyRTEsYcr0IpTBYFwXb1jT-njG" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=LuigiSigillo/LatentWaveletDiffusion&type=date&legend=top-left&sealed_token=lQse2PNlzuLDmGiwN3wocfB7ZxM0tjt8St_CUxkkx04zIt1_tAd8Sxk9dSsWHpEiGo9CoUHaLvibkf7YgwWCQwYUM8RIhNAz7rhsW1NIKcHCgzu0Qb1A7_9S_SOXPkilU8bkW_1pAtAUyILfks1uce4x9jdEbHPj2DcyRTEsYcr0IpTBYFwXb1jT-njG" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=LuigiSigillo/LatentWaveletDiffusion&type=date&legend=top-left&sealed_token=lQse2PNlzuLDmGiwN3wocfB7ZxM0tjt8St_CUxkkx04zIt1_tAd8Sxk9dSsWHpEiGo9CoUHaLvibkf7YgwWCQwYUM8RIhNAz7rhsW1NIKcHCgzu0Qb1A7_9S_SOXPkilU8bkW_1pAtAUyILfks1uce4x9jdEbHPj2DcyRTEsYcr0IpTBYFwXb1jT-njG" />
+ </picture>
 </a>
 
 ---
